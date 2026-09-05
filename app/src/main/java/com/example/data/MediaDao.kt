@@ -22,7 +22,7 @@ interface MediaDao {
     @Query("SELECT * FROM media_items")
     suspend fun getAllMediaList(): List<MediaItem>
 
-    @Query("DELETE FROM media_items WHERE uriString LIKE 'android.resource://%' OR uriString LIKE 'https://images.unsplash.com%'")
+    @Query("DELETE FROM media_items WHERE uriString LIKE 'android.resource://%'")
     suspend fun deleteDemoItems()
 
     @Query("SELECT DISTINCT locationName FROM media_items WHERE locationName != '' ORDER BY locationName ASC")

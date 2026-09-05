@@ -11,6 +11,7 @@ import com.example.data.MediaItem
 import com.example.data.MediaType
 import com.example.data.ai.MediaAnalyzer
 import com.example.ui.util.DateTimeUtils
+import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,13 +20,20 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+@Immutable
 data class ViewSettings(
     val viewMode: GalleryViewMode = GalleryViewMode.TIMELINE,
     val typeFilter: MediaTypeFilter = MediaTypeFilter.ALL,
     val sortOrder: SortOrder = SortOrder.NEWEST_FIRST,
+    val gridColumns: Int = 3,
     val searchQuery: String = "",
     val selectedLocationFilter: String? = null,
     val selectedTagFilter: String? = null,
+    val selectedAlbumId: String? = null,
+    val showSettingsDialog: Boolean = false,
+    val showCreateAlbumDialog: Boolean = false,
+    val showVideoDurationBadge: Boolean = true,
+    val themeMode: String = "system",
     val activeItem: MediaItem? = null,
     val showAddDialog: Boolean = false,
     val editingItem: MediaItem? = null,
@@ -118,6 +126,63 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             }
             .sortedByDescending { it.items.size }
 
+        // Smart Albums (Favorites, Videos)
+        val smartAlbums = mutableListOf<Album>()
+        val favorites = allMedia.filter { it.isFavorite }
+        smartAlbums.add(
+            Album(
+                id = "smart_favorites",
+                name = "Favorites",
+                items = favorites,
+                coverItem = favorites.firstOrNull(),
+                photoCount = favorites.count { it.type == MediaType.PHOTO },
+                videoCount = favorites.count { it.type == MediaType.VIDEO },
+                isSmartAlbum = true,
+                iconType = "favorite"
+            )
+        )
+        val videos = allMedia.filter { it.type == MediaType.VIDEO }
+        smartAlbums.add(
+            Album(
+                id = "smart_videos",
+                name = "Videos",
+                items = videos,
+                coverItem = videos.firstOrNull(),
+                photoCount = 0,
+                videoCount = videos.size,
+                isSmartAlbum = true,
+                iconType = "video"
+            )
+        )
+
+        // Device & Folder Albums
+        val folderAlbums = allMedia
+            .groupBy { it.locationName.ifBlank { "Photos" } }
+            .map { (folderName, items) ->
+                val iconType = when {
+                    folderName.contains("camera", ignoreCase = true) -> "camera"
+                    folderName.contains("screenshot", ignoreCase = true) -> "screenshot"
+                    folderName.contains("download", ignoreCase = true) -> "download"
+                    else -> "folder"
+                }
+                Album(
+                    id = "folder_$folderName",
+                    name = folderName,
+                    items = items,
+                    coverItem = items.firstOrNull(),
+                    photoCount = items.count { it.type == MediaType.PHOTO },
+                    videoCount = items.count { it.type == MediaType.VIDEO },
+                    isSmartAlbum = false,
+                    iconType = iconType
+                )
+            }
+            .sortedByDescending { it.items.size }
+
+        val allAlbums = smartAlbums + folderAlbums
+        val selectedAlbum = settings.selectedAlbumId?.let { id ->
+            allAlbums.find { it.id == id }
+        }
+
         val uniqueLocations = allMedia
             .map { it.locationName }
             .filter { it.isNotBlank() }
@@ -139,6 +204,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             viewMode = settings.viewMode,
             typeFilter = settings.typeFilter,
             sortOrder = settings.sortOrder,
+            gridColumns = settings.gridColumns,
             searchQuery = settings.searchQuery,
             selectedLocationFilter = settings.selectedLocationFilter,
             selectedTagFilter = settings.selectedTagFilter,
@@ -146,10 +212,16 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             filteredMedia = filtered,
             dateGroups = dateGroups,
             locationGroups = locationGroups,
+            albums = allAlbums,
+            selectedAlbum = selectedAlbum,
             availableLocations = uniqueLocations,
             availableTags = uniqueTags,
             activeItem = syncedActiveItem,
             showAddDialog = settings.showAddDialog,
+            showSettingsDialog = settings.showSettingsDialog,
+            showCreateAlbumDialog = settings.showCreateAlbumDialog,
+            showVideoDurationBadge = settings.showVideoDurationBadge,
+            themeMode = settings.themeMode,
             editingItem = settings.editingItem,
             isSearching = settings.isSearching,
             isAnalyzingTags = settings.isAnalyzingTags,
@@ -164,8 +236,48 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         initialValue = GalleryUiState()
     )
 
+    fun setGridColumns(columns: Int) {
+        val clamped = columns.coerceIn(2, 5)
+        _settings.update { it.copy(gridColumns = clamped) }
+    }
+
+    fun zoomInGrid() {
+        _settings.update { it.copy(gridColumns = (it.gridColumns - 1).coerceAtLeast(2)) }
+    }
+
+    fun zoomOutGrid() {
+        _settings.update { it.copy(gridColumns = (it.gridColumns + 1).coerceAtMost(5)) }
+    }
+
     fun selectViewMode(mode: GalleryViewMode) {
-        _settings.update { it.copy(viewMode = mode) }
+        _settings.update {
+            if (mode == GalleryViewMode.ALBUMS && it.viewMode == GalleryViewMode.ALBUMS && it.selectedAlbumId != null) {
+                // Tapping Albums while in an album pops back to root Albums
+                it.copy(selectedAlbumId = null)
+            } else {
+                it.copy(viewMode = mode)
+            }
+        }
+    }
+
+    fun selectAlbum(album: Album?) {
+        _settings.update { it.copy(selectedAlbumId = album?.id) }
+    }
+
+    fun setSettingsDialogVisible(visible: Boolean) {
+        _settings.update { it.copy(showSettingsDialog = visible) }
+    }
+
+    fun setCreateAlbumDialogVisible(visible: Boolean) {
+        _settings.update { it.copy(showCreateAlbumDialog = visible) }
+    }
+
+    fun setShowVideoDurationBadge(show: Boolean) {
+        _settings.update { it.copy(showVideoDurationBadge = show) }
+    }
+
+    fun setThemeMode(mode: String) {
+        _settings.update { it.copy(themeMode = mode) }
     }
 
     fun setMediaTypeFilter(filter: MediaTypeFilter) {

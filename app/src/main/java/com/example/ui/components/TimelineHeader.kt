@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -35,10 +36,20 @@ fun TimelineHeader(
     onLocationClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val locationsInGroup = dateGroup.items
-        .map { it.locationName }
-        .filter { it.isNotBlank() }
-        .distinct()
+    val locationsInGroup = remember(dateGroup.groupTitle, dateGroup.items.size) {
+        dateGroup.items
+            .map { it.locationName }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
+    val subtitle = remember(dateGroup.items.size, dateGroup.photoCount, dateGroup.videoCount) {
+        buildString {
+            append("${dateGroup.items.size} items")
+            if (dateGroup.photoCount > 0) append(" • ${dateGroup.photoCount} photos")
+            if (dateGroup.videoCount > 0) append(" • ${dateGroup.videoCount} videos")
+        }
+    }
 
     Column(
         modifier = modifier
@@ -72,11 +83,7 @@ fun TimelineHeader(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = buildString {
-                            append("${dateGroup.items.size} items")
-                            if (dateGroup.photoCount > 0) append(" • ${dateGroup.photoCount} photos")
-                            if (dateGroup.videoCount > 0) append(" • ${dateGroup.videoCount} videos")
-                        },
+                        text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

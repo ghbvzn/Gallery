@@ -29,10 +29,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,20 +52,26 @@ import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Today
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.Videocam
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -72,6 +80,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -81,11 +90,14 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -95,18 +107,56 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.MediaType
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.outlined.Settings
+import com.example.ui.Album
 import com.example.ui.GalleryUiState
 import com.example.ui.GalleryViewMode
 import com.example.ui.GalleryViewModel
 import com.example.ui.MediaTypeFilter
 import com.example.ui.SortOrder
 import com.example.ui.components.AddMediaDialog
+import com.example.ui.components.AlbumCard
 import com.example.ui.components.EditMetadataDialog
+import com.example.ui.components.FastGridScrollbar
+import com.example.ui.components.FastListScrollbar
 import com.example.ui.components.LocationCard
 import com.example.ui.components.MediaCard
 import com.example.ui.components.MediaDetailViewer
+import com.example.ui.components.SettingsDialog
 import com.example.ui.components.TimelineHeader
 import com.example.ui.theme.RoseFavorite
+import com.example.ui.util.DateTimeUtils
+
+/**
+ * Natural two-finger pinch-to-zoom modifier.
+ * Allows user to pinch inward to zoom out (more columns) or pinch outward to zoom in (fewer columns).
+ * Never intercepts single-finger scrolling!
+ */
+fun Modifier.pinchToZoomGrid(
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit
+): Modifier = this.pointerInput(Unit) {
+    awaitEachGesture {
+        var totalZoom = 1f
+        do {
+            val event = awaitPointerEvent()
+            if (event.changes.size >= 2) {
+                val zoom = event.calculateZoom()
+                totalZoom *= zoom
+                if (totalZoom > 1.35f) {
+                    onZoomIn()
+                    totalZoom = 1f
+                } else if (totalZoom < 0.74f) {
+                    onZoomOut()
+                    totalZoom = 1f
+                }
+            }
+        } while (event.changes.any { it.pressed })
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -168,6 +218,11 @@ fun GalleryScreen(
         }
     }
 
+    // Back Handler: return to album list if an album is selected
+    BackHandler(enabled = uiState.selectedAlbum != null) {
+        viewModel.selectAlbum(null)
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -187,9 +242,10 @@ fun GalleryScreen(
                                 fontWeight = FontWeight.ExtraBold
                             )
                             val totalItems = uiState.allMedia.size
+                            val albumsCount = uiState.albums.size
                             val locationsCount = uiState.availableLocations.size
                             Text(
-                                text = "$totalItems memories • $locationsCount places",
+                                text = "$totalItems memories • $albumsCount albums • $locationsCount places",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -235,6 +291,17 @@ fun GalleryScreen(
                                 else
                                     Icons.Default.ArrowUpward,
                                 contentDescription = "Sort Order: ${uiState.sortOrder.name}"
+                            )
+                        }
+
+                        // Settings Menu Button
+                        IconButton(
+                            onClick = { viewModel.setSettingsDialogVisible(true) },
+                            modifier = Modifier.testTag("settings_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = "Settings"
                             )
                         }
                     },
@@ -284,7 +351,7 @@ fun GalleryScreen(
                     }
                 }
 
-                // Filter Chips Row (Media type & Active location filter)
+                // Filter Chips Row (Media type & Active filters)
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -432,8 +499,27 @@ fun GalleryScreen(
                             contentDescription = "Timeline by Date"
                         )
                     },
-                    label = { Text("By Date") },
+                    label = { Text("Photos") },
                     modifier = Modifier.testTag("nav_item_timeline")
+                )
+
+                NavigationBarItem(
+                    selected = uiState.viewMode == GalleryViewMode.ALBUMS,
+                    onClick = { viewModel.selectViewMode(GalleryViewMode.ALBUMS) },
+                    icon = {
+                        BadgedBox(badge = {
+                            if (uiState.albums.isNotEmpty()) {
+                                Badge { Text("${uiState.albums.size}") }
+                            }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.CollectionsBookmark,
+                                contentDescription = "Albums"
+                            )
+                        }
+                    },
+                    label = { Text("Albums") },
+                    modifier = Modifier.testTag("nav_item_albums")
                 )
 
                 NavigationBarItem(
@@ -533,6 +619,30 @@ fun GalleryScreen(
 
             Box(modifier = Modifier.weight(1f)) {
                 when {
+                    // Albums View: Overview or Album Detail
+                    uiState.viewMode == GalleryViewMode.ALBUMS -> {
+                        val currentAlbum = uiState.selectedAlbum
+                        if (currentAlbum != null) {
+                            AlbumDetailContent(
+                                album = currentAlbum,
+                                uiState = uiState,
+                                onBack = { viewModel.selectAlbum(null) },
+                                onMediaClick = { viewModel.openDetailViewer(it) },
+                                onToggleFavorite = { viewModel.toggleFavorite(it) },
+                                onZoomIn = { viewModel.zoomInGrid() },
+                                onZoomOut = { viewModel.zoomOutGrid() }
+                            )
+                        } else {
+                            AlbumsContent(
+                                albums = uiState.albums,
+                                hasMediaPermission = uiState.hasMediaPermission,
+                                onGrantPermission = { permissionLauncher.launch(mediaPermissions) },
+                                onRefreshMedia = { viewModel.refreshDeviceMedia() },
+                                onSelectAlbum = { viewModel.selectAlbum(it) }
+                            )
+                        }
+                    }
+
                     // Places View: Grouped by Location
                     uiState.viewMode == GalleryViewMode.PLACES && uiState.selectedLocationFilter == null -> {
                         PlacesContent(
@@ -555,7 +665,9 @@ fun GalleryScreen(
                             onRefreshMedia = { viewModel.refreshDeviceMedia() },
                             onMediaClick = { viewModel.openDetailViewer(it) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
-                            onLocationFilter = { viewModel.setSelectedLocationFilter(it) }
+                            onLocationFilter = { viewModel.setSelectedLocationFilter(it) },
+                            onZoomIn = { viewModel.zoomInGrid() },
+                            onZoomOut = { viewModel.zoomOutGrid() }
                         )
                     }
 
@@ -567,7 +679,9 @@ fun GalleryScreen(
                             onGrantPermission = { permissionLauncher.launch(mediaPermissions) },
                             onRefreshMedia = { viewModel.refreshDeviceMedia() },
                             onMediaClick = { viewModel.openDetailViewer(it) },
-                            onToggleFavorite = { viewModel.toggleFavorite(it) }
+                            onToggleFavorite = { viewModel.toggleFavorite(it) },
+                            onZoomIn = { viewModel.zoomInGrid() },
+                            onZoomOut = { viewModel.zoomOutGrid() }
                         )
                     }
                 }
@@ -618,6 +732,19 @@ fun GalleryScreen(
             }
         )
     }
+
+    // Settings Dialog
+    if (uiState.showSettingsDialog) {
+        SettingsDialog(
+            uiState = uiState,
+            onDismiss = { viewModel.setSettingsDialogVisible(false) },
+            onSetGridColumns = { viewModel.setGridColumns(it) },
+            onToggleVideoBadges = { viewModel.setShowVideoDurationBadge(it) },
+            onSetThemeMode = { viewModel.setThemeMode(it) },
+            onRefreshMedia = { viewModel.refreshDeviceMedia() },
+            onRequestPermission = { permissionLauncher.launch(mediaPermissions) }
+        )
+    }
 }
 
 @Composable
@@ -627,7 +754,9 @@ private fun TimelineContent(
     onRefreshMedia: () -> Unit,
     onMediaClick: (com.example.data.MediaItem) -> Unit,
     onToggleFavorite: (com.example.data.MediaItem) -> Unit,
-    onLocationFilter: (String) -> Unit
+    onLocationFilter: (String) -> Unit,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit
 ) {
     if (uiState.filteredMedia.isEmpty()) {
         when {
@@ -660,51 +789,76 @@ private fun TimelineContent(
         return
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 96.dp)
-    ) {
-        uiState.dateGroups.forEach { dateGroup ->
-            item(key = "header_${dateGroup.groupTitle}") {
-                TimelineHeader(
-                    dateGroup = dateGroup,
-                    onLocationClick = onLocationFilter
-                )
-            }
+    val gridState = rememberLazyGridState()
+    val totalItems = remember(uiState.dateGroups) {
+        uiState.dateGroups.sumOf { 1 + it.items.size }
+    }
 
-            item(key = "grid_${dateGroup.groupTitle}") {
-                // Render 2 items per row in responsive grid style
-                val items = dateGroup.items
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    val rows = items.chunked(2)
-                    rows.forEach { rowItems ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            rowItems.forEach { item ->
-                                Box(modifier = Modifier.weight(1f)) {
-                                    MediaCard(
-                                        item = item,
-                                        onClick = { onMediaClick(item) },
-                                        onToggleFavorite = { onToggleFavorite(item) }
-                                    )
-                                }
-                            }
-                            if (rowItems.size == 1) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
+    val indexToGroupTitle = remember(uiState.dateGroups) {
+        val titles = ArrayList<String>()
+        for (group in uiState.dateGroups) {
+            titles.add(group.groupTitle)
+            for (item in group.items) {
+                titles.add(group.groupTitle)
             }
         }
+        titles
+    }
+
+    val cellSpacing = when {
+        uiState.gridColumns >= 5 -> 3.dp
+        uiState.gridColumns == 4 -> 4.dp
+        uiState.gridColumns == 3 -> 6.dp
+        else -> 8.dp
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Fixed(uiState.gridColumns),
+            modifier = Modifier
+                .fillMaxSize()
+                .pinchToZoomGrid(onZoomIn = onZoomIn, onZoomOut = onZoomOut),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 96.dp),
+            horizontalArrangement = Arrangement.spacedBy(cellSpacing),
+            verticalArrangement = Arrangement.spacedBy(cellSpacing)
+        ) {
+            uiState.dateGroups.forEach { dateGroup ->
+                item(
+                    key = "header_${dateGroup.groupTitle}",
+                    span = { GridItemSpan(maxLineSpan) }
+                ) {
+                    TimelineHeader(
+                        dateGroup = dateGroup,
+                        onLocationClick = onLocationFilter
+                    )
+                }
+
+                items(
+                    items = dateGroup.items,
+                    key = { it.id }
+                ) { item ->
+                    MediaCard(
+                        item = item,
+                        gridColumns = uiState.gridColumns,
+                        showVideoDurationBadge = uiState.showVideoDurationBadge,
+                        onClick = { onMediaClick(item) },
+                        onToggleFavorite = { onToggleFavorite(item) }
+                    )
+                }
+            }
+        }
+
+        FastGridScrollbar(
+            gridState = gridState,
+            totalItems = totalItems,
+            labelProvider = { index ->
+                indexToGroupTitle.getOrElse(index) { "" }
+            },
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 6.dp, top = 12.dp, bottom = 84.dp)
+        )
     }
 }
 
@@ -735,18 +889,130 @@ private fun PlacesContent(
         return
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+    val listState = rememberLazyListState()
+    val totalItems = 1 + locationGroups.size
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Explore,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Places & Locations",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Browse your photo and video collection grouped by travel destinations and places.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            items(locationGroups, key = { it.locationName }) { group ->
+                LocationCard(
+                    group = group,
+                    onClick = { onSelectLocation(group.locationName) }
+                )
+            }
+        }
+
+        FastListScrollbar(
+            listState = listState,
+            totalItems = totalItems,
+            labelProvider = { index ->
+                if (index == 0) "Top"
+                else locationGroups.getOrNull(index - 1)?.locationName ?: ""
+            },
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 6.dp, top = 12.dp, bottom = 84.dp)
+        )
+    }
+}
+
+@Composable
+private fun AlbumsContent(
+    albums: List<Album>,
+    hasMediaPermission: Boolean,
+    onGrantPermission: () -> Unit,
+    onRefreshMedia: () -> Unit,
+    onSelectAlbum: (Album) -> Unit
+) {
+    if (albums.isEmpty()) {
+        if (!hasMediaPermission) {
+            EmptyGalleryState(
+                title = "Media Access Required",
+                message = "Allow media access so your albums and collections can be displayed.",
+                actionText = "Grant Permission",
+                onAction = onGrantPermission
+            )
+        } else {
+            EmptyGalleryState(
+                title = "No Albums Found",
+                message = "Photos and videos on your device will automatically appear in albums here.",
+                actionText = "Refresh Albums",
+                onAction = onRefreshMedia
+            )
+        }
+        return
+    }
+
+    val gridState = rememberLazyGridState()
+    val smartAlbums = remember(albums) { albums.filter { it.isSmartAlbum } }
+    val regularAlbums = remember(albums) { albums.filter { !it.isSmartAlbum } }
+
+    LazyVerticalGrid(
+        state = gridState,
+        columns = GridCells.Adaptive(minSize = 160.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("albums_overview_grid"),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
+        // Hero Header Card
+        item(span = { GridItemSpan(maxLineSpan) }) {
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                 ),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
@@ -755,24 +1021,24 @@ private fun PlacesContent(
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(44.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Explore,
+                            imageVector = Icons.Default.CollectionsBookmark,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.padding(8.dp)
+                            modifier = Modifier.padding(10.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(14.dp))
                     Column {
                         Text(
-                            text = "Places & Locations",
+                            text = "Albums & Collections",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Browse your photo and video collection grouped by travel destinations and places.",
+                            text = "${albums.size} albums • Favorites, videos, and on-device folders",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -781,11 +1047,159 @@ private fun PlacesContent(
             }
         }
 
-        items(locationGroups, key = { it.locationName }) { group ->
-            LocationCard(
-                group = group,
-                onClick = { onSelectLocation(group.locationName) }
+        // Section: Smart Collections
+        if (smartAlbums.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text(
+                    text = "Smart Collections",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                )
+            }
+
+            items(smartAlbums, key = { it.id }) { album ->
+                AlbumCard(
+                    album = album,
+                    onClick = { onSelectAlbum(album) }
+                )
+            }
+        }
+
+        // Section: Device Folders & Albums
+        if (regularAlbums.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text(
+                    text = "Device Folders (${regularAlbums.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)
+                )
+            }
+
+            items(regularAlbums, key = { it.id }) { album ->
+                AlbumCard(
+                    album = album,
+                    onClick = { onSelectAlbum(album) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlbumDetailContent(
+    album: Album,
+    uiState: GalleryUiState,
+    onBack: () -> Unit,
+    onMediaClick: (com.example.data.MediaItem) -> Unit,
+    onToggleFavorite: (com.example.data.MediaItem) -> Unit,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit
+) {
+    val gridState = rememberLazyGridState()
+    val cellSpacing = when {
+        uiState.gridColumns >= 5 -> 3.dp
+        uiState.gridColumns == 4 -> 4.dp
+        uiState.gridColumns == 3 -> 6.dp
+        else -> 8.dp
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Album Top Header Bar with Back Button & Details
+        Surface(
+            tonalElevation = 2.dp,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.testTag("album_detail_back_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back to Albums"
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = album.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${album.items.size} items • ${album.photoCount} photos, ${album.videoCount} videos",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        if (album.items.isEmpty()) {
+            EmptyGalleryState(
+                title = "Album is Empty",
+                message = "There are no photos or videos in this album yet.",
+                actionText = "Back to Albums",
+                onAction = onBack
             )
+        } else {
+            val totalItems = album.items.size
+            val dateLabels = remember(album.items) {
+                album.items.map { DateTimeUtils.formatShortDate(it.dateEpochMillis) }
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Fixed(uiState.gridColumns),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pinchToZoomGrid(onZoomIn = onZoomIn, onZoomOut = onZoomOut)
+                        .testTag("album_detail_grid"),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
+                    horizontalArrangement = Arrangement.spacedBy(cellSpacing),
+                    verticalArrangement = Arrangement.spacedBy(cellSpacing)
+                ) {
+                    items(album.items, key = { it.id }) { item ->
+                        MediaCard(
+                            item = item,
+                            gridColumns = uiState.gridColumns,
+                            showVideoDurationBadge = uiState.showVideoDurationBadge,
+                            onClick = { onMediaClick(item) },
+                            onToggleFavorite = { onToggleFavorite(item) }
+                        )
+                    }
+                }
+
+                FastGridScrollbar(
+                    gridState = gridState,
+                    totalItems = totalItems,
+                    labelProvider = { index ->
+                        if (index in dateLabels.indices) {
+                            "${dateLabels[index]} (${index + 1}/$totalItems)"
+                        } else {
+                            "${index + 1} / $totalItems"
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 6.dp, top = 12.dp, bottom = 84.dp)
+                )
+            }
         }
     }
 }
@@ -797,7 +1211,9 @@ private fun GridContent(
     onGrantPermission: () -> Unit,
     onRefreshMedia: () -> Unit,
     onMediaClick: (com.example.data.MediaItem) -> Unit,
-    onToggleFavorite: (com.example.data.MediaItem) -> Unit
+    onToggleFavorite: (com.example.data.MediaItem) -> Unit,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit
 ) {
     if (uiState.filteredMedia.isEmpty()) {
         when {
@@ -827,20 +1243,56 @@ private fun GridContent(
         return
     }
 
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 150.dp),
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 96.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        items(uiState.filteredMedia, key = { it.id }) { item ->
-            MediaCard(
-                item = item,
-                onClick = { onMediaClick(item) },
-                onToggleFavorite = { onToggleFavorite(item) }
-            )
+    val gridState = rememberLazyGridState()
+    val totalItems = uiState.filteredMedia.size
+
+    val indexToDateLabel = remember(uiState.filteredMedia) {
+        uiState.filteredMedia.map { com.example.ui.util.DateTimeUtils.formatShortDate(it.dateEpochMillis) }
+    }
+
+    val cellSpacing = when {
+        uiState.gridColumns >= 5 -> 3.dp
+        uiState.gridColumns == 4 -> 4.dp
+        uiState.gridColumns == 3 -> 6.dp
+        else -> 8.dp
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Fixed(uiState.gridColumns),
+            modifier = Modifier
+                .fillMaxSize()
+                .pinchToZoomGrid(onZoomIn = onZoomIn, onZoomOut = onZoomOut),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 96.dp),
+            horizontalArrangement = Arrangement.spacedBy(cellSpacing),
+            verticalArrangement = Arrangement.spacedBy(cellSpacing)
+        ) {
+            items(uiState.filteredMedia, key = { it.id }) { item ->
+                MediaCard(
+                    item = item,
+                    gridColumns = uiState.gridColumns,
+                    showVideoDurationBadge = uiState.showVideoDurationBadge,
+                    onClick = { onMediaClick(item) },
+                    onToggleFavorite = { onToggleFavorite(item) }
+                )
+            }
         }
+
+        FastGridScrollbar(
+            gridState = gridState,
+            totalItems = totalItems,
+            labelProvider = { index ->
+                if (index in indexToDateLabel.indices) {
+                    "${indexToDateLabel[index]} (${index + 1}/$totalItems)"
+                } else {
+                    "${index + 1} / $totalItems"
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 6.dp, top = 12.dp, bottom = 84.dp)
+        )
     }
 }
 

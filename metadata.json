@@ -1,6 +1,6 @@
 {
   "name": "Gallery",
-  "description": "Organize photos and videos chronologically and by location with intuitive timeline and places views.",
+  "description": "Organize photos and videos chronologically, by location, and by albums with customizable grid sizes and gallery settings.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

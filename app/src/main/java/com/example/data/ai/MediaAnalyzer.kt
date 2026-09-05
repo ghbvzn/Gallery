@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
 import android.util.Base64
 import android.util.Log
 import com.example.BuildConfig
@@ -174,8 +175,35 @@ class MediaAnalyzer(private val context: Context) {
 
     private fun loadThumbnailBitmap(uriString: String): Bitmap? {
         return try {
-            if (uriString.startsWith("android.resource://")) {
-                val uri = Uri.parse(uriString)
+            val uri = Uri.parse(uriString)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && (uriString.startsWith("content://") || uriString.startsWith("file://"))) {
+                try {
+                    val thumb = context.contentResolver.loadThumbnail(uri, android.util.Size(512, 512), null)
+                    if (thumb != null) return thumb
+                } catch (e: Throwable) {
+                    // Fall back to retriever/stream
+                }
+            }
+
+            if (uriString.startsWith("content://") || uriString.startsWith("file://")) {
+                // Try MediaMetadataRetriever for videos
+                try {
+                    val retriever = android.media.MediaMetadataRetriever()
+                    retriever.setDataSource(context, uri)
+                    val frame = retriever.getFrameAtTime(1000000)
+                    retriever.release()
+                    if (frame != null) return frame
+                } catch (e: Throwable) {
+                    // Not a video or retriever failed
+                }
+
+                context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                    val options = BitmapFactory.Options().apply {
+                        inSampleSize = 2
+                    }
+                    BitmapFactory.decodeStream(inputStream, null, options)
+                }
+            } else if (uriString.startsWith("android.resource://")) {
                 val resId = uri.lastPathSegment?.toIntOrNull()
                 if (resId != null) {
                     val options = BitmapFactory.Options().apply {
@@ -183,14 +211,6 @@ class MediaAnalyzer(private val context: Context) {
                     }
                     BitmapFactory.decodeResource(context.resources, resId, options)
                 } else null
-            } else if (uriString.startsWith("content://") || uriString.startsWith("file://")) {
-                val uri = Uri.parse(uriString)
-                context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    val options = BitmapFactory.Options().apply {
-                        inSampleSize = 2
-                    }
-                    BitmapFactory.decodeStream(inputStream, null, options)
-                }
             } else {
                 null
             }

@@ -15,9 +15,13 @@ class DeviceMediaScanner(private val context: Context) {
         val mediaList = mutableListOf<MediaItem>()
         try {
             mediaList.addAll(queryImages())
+        } catch (e: Exception) {
+            Log.e("DeviceMediaScanner", "Error querying device images", e)
+        }
+        try {
             mediaList.addAll(queryVideos())
         } catch (e: Exception) {
-            Log.e("DeviceMediaScanner", "Error querying device media", e)
+            Log.e("DeviceMediaScanner", "Error querying device videos", e)
         }
         mediaList.sortedByDescending { it.dateEpochMillis }
     }
