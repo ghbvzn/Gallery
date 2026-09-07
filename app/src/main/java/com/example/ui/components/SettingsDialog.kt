@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.Coil
+import com.example.BuildConfig
 import com.example.ui.GalleryUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -412,9 +413,10 @@ fun SettingsDialog(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "v1.4",
+                                text = "v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.testTag("app_version_label")
                             )
                         }
                     }
