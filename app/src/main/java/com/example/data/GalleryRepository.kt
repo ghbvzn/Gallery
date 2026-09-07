@@ -74,4 +74,18 @@ class GalleryRepository(private val mediaDao: MediaDao) {
             mediaDao.deleteById(id)
         }
     }
+
+    suspend fun deleteBatch(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            mediaDao.deleteByIds(ids)
+        }
+    }
+
+    suspend fun setFavoriteBatch(ids: List<Long>, isFavorite: Boolean) {
+        if (ids.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            mediaDao.setFavoriteBatch(ids, isFavorite)
+        }
+    }
 }

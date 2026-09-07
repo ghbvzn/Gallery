@@ -60,4 +60,10 @@ interface MediaDao {
 
     @Query("DELETE FROM media_items WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM media_items WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
+    @Query("UPDATE media_items SET isFavorite = :isFavorite WHERE id IN (:ids)")
+    suspend fun setFavoriteBatch(ids: List<Long>, isFavorite: Boolean)
 }

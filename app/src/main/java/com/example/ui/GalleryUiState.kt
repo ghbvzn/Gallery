@@ -80,5 +80,8 @@ data class GalleryUiState(
     val aiTaggingNotice: String? = null,
     val hasMediaPermission: Boolean = false,
     val isLoadingMedia: Boolean = false,
-    val permissionRequested: Boolean = false
-)
+    val permissionRequested: Boolean = false,
+    val selectedItemIds: Set<Long> = emptySet()
+) {
+    val isSelectionMode: Boolean get() = selectedItemIds.isNotEmpty()
+}

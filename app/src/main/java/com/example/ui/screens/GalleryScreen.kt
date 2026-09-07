@@ -1,7 +1,10 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,11 +42,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LocationOn
@@ -51,17 +58,22 @@ import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Photo
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Videocam
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -158,6 +170,35 @@ fun Modifier.pinchToZoomGrid(
     }
 }
 
+private fun shareMediaItems(context: Context, items: List<com.example.data.MediaItem>) {
+    if (items.isEmpty()) return
+    val uris = ArrayList<Uri>()
+    items.forEach { item ->
+        try {
+            uris.add(Uri.parse(item.uriString))
+        } catch (_: Exception) {}
+    }
+    if (uris.isEmpty()) return
+
+    val intent = if (uris.size == 1) {
+        Intent(Intent.ACTION_SEND).apply {
+            val item = items.first()
+            type = if (item.type == MediaType.VIDEO) "video/*" else "image/*"
+            putExtra(Intent.EXTRA_STREAM, uris.first())
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    } else {
+        Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "*/*"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    try {
+        context.startActivity(Intent.createChooser(intent, "Share ${items.size} item${if (items.size > 1) "s" else ""}"))
+    } catch (_: Exception) {}
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GalleryScreen(
@@ -219,9 +260,16 @@ fun GalleryScreen(
     }
 
     // Back Handler: return to album list if an album is selected
-    BackHandler(enabled = uiState.selectedAlbum != null) {
+    BackHandler(enabled = uiState.selectedAlbum != null && !uiState.isSelectionMode) {
         viewModel.selectAlbum(null)
     }
+
+    // Back Handler: exit selection mode if active
+    BackHandler(enabled = uiState.isSelectionMode) {
+        viewModel.clearSelection()
+    }
+
+    var showBatchDeleteDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -233,82 +281,169 @@ fun GalleryScreen(
                     .background(MaterialTheme.colorScheme.surface)
                     .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
             ) {
-                TopAppBar(
-                    title = {
-                        Column {
+                if (uiState.isSelectionMode) {
+                    TopAppBar(
+                        navigationIcon = {
+                            IconButton(
+                                onClick = { viewModel.clearSelection() },
+                                modifier = Modifier.testTag("exit_selection_mode_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Exit selection mode"
+                                )
+                            }
+                        },
+                        title = {
                             Text(
-                                text = "Gallery",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.ExtraBold
+                                text = "${uiState.selectedItemIds.size} selected",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.testTag("selection_count_label")
                             )
-                            val totalItems = uiState.allMedia.size
-                            val albumsCount = uiState.albums.size
-                            val locationsCount = uiState.availableLocations.size
-                            Text(
-                                text = "$totalItems memories • $albumsCount albums • $locationsCount places",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    },
-                    actions = {
-                        // Refresh Device Media Button
-                        IconButton(
-                            onClick = {
-                                if (checkPermissionsGranted()) {
-                                    viewModel.refreshDeviceMedia()
-                                } else {
-                                    permissionLauncher.launch(mediaPermissions)
-                                }
-                            },
-                            modifier = Modifier.testTag("refresh_media_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Refresh Device Media"
-                            )
-                        }
+                        },
+                        actions = {
+                            val allSelected = uiState.filteredMedia.isNotEmpty() &&
+                                    uiState.filteredMedia.all { it.id in uiState.selectedItemIds }
 
-                        // Search Button
-                        IconButton(
-                            onClick = { viewModel.toggleSearch() },
-                            modifier = Modifier.testTag("toggle_search_button")
-                        ) {
-                            Icon(
-                                imageVector = if (uiState.isSearching) Icons.Default.Close else Icons.Default.Search,
-                                contentDescription = "Search"
-                            )
-                        }
+                            // Select All / Deselect All
+                            IconButton(
+                                onClick = {
+                                    if (allSelected) {
+                                        viewModel.clearSelection()
+                                    } else {
+                                        viewModel.selectAll()
+                                    }
+                                },
+                                modifier = Modifier.testTag("select_all_toggle_button")
+                            ) {
+                                Icon(
+                                    imageVector = if (allSelected) Icons.Default.Deselect else Icons.Default.SelectAll,
+                                    contentDescription = if (allSelected) "Deselect all" else "Select all"
+                                )
+                            }
 
-                        // Sort Order Toggle Button
-                        IconButton(
-                            onClick = { viewModel.toggleSortOrder() },
-                            modifier = Modifier.testTag("toggle_sort_button")
-                        ) {
-                            Icon(
-                                imageVector = if (uiState.sortOrder == SortOrder.NEWEST_FIRST)
-                                    Icons.Default.ArrowDownward
-                                else
-                                    Icons.Default.ArrowUpward,
-                                contentDescription = "Sort Order: ${uiState.sortOrder.name}"
-                            )
-                        }
+                            // Batch Favorite
+                            val selectedItems = remember(uiState.selectedItemIds, uiState.allMedia) {
+                                uiState.allMedia.filter { it.id in uiState.selectedItemIds }
+                            }
+                            val anyNotFav = selectedItems.any { !it.isFavorite }
+                            IconButton(
+                                onClick = { viewModel.toggleFavoriteSelected() },
+                                modifier = Modifier.testTag("batch_favorite_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Favorite,
+                                    contentDescription = if (anyNotFav) "Favorite selected" else "Unfavorite selected",
+                                    tint = if (anyNotFav) MaterialTheme.colorScheme.onSurface else RoseFavorite
+                                )
+                            }
 
-                        // Settings Menu Button
-                        IconButton(
-                            onClick = { viewModel.setSettingsDialogVisible(true) },
-                            modifier = Modifier.testTag("settings_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Settings,
-                                contentDescription = "Settings"
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
+                            // Batch Share
+                            IconButton(
+                                onClick = { shareMediaItems(context, selectedItems) },
+                                modifier = Modifier.testTag("batch_share_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Share selected"
+                                )
+                            }
+
+                            // Batch Delete
+                            IconButton(
+                                onClick = { showBatchDeleteDialog = true },
+                                modifier = Modifier.testTag("batch_delete_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete selected",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
                     )
-                )
+                } else {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text(
+                                    text = "Gallery",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                val totalItems = uiState.allMedia.size
+                                val albumsCount = uiState.albums.size
+                                val locationsCount = uiState.availableLocations.size
+                                Text(
+                                    text = "$totalItems memories • $albumsCount albums • $locationsCount places",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        actions = {
+                            // Refresh Device Media Button
+                            IconButton(
+                                onClick = {
+                                    if (checkPermissionsGranted()) {
+                                        viewModel.refreshDeviceMedia()
+                                    } else {
+                                        permissionLauncher.launch(mediaPermissions)
+                                    }
+                                },
+                                modifier = Modifier.testTag("refresh_media_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh Device Media"
+                                )
+                            }
+
+                            // Search Button
+                            IconButton(
+                                onClick = { viewModel.toggleSearch() },
+                                modifier = Modifier.testTag("toggle_search_button")
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.isSearching) Icons.Default.Close else Icons.Default.Search,
+                                    contentDescription = "Search"
+                                )
+                            }
+
+                            // Sort Order Toggle Button
+                            IconButton(
+                                onClick = { viewModel.toggleSortOrder() },
+                                modifier = Modifier.testTag("toggle_sort_button")
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.sortOrder == SortOrder.NEWEST_FIRST)
+                                        Icons.Default.ArrowDownward
+                                    else
+                                        Icons.Default.ArrowUpward,
+                                    contentDescription = "Sort Order: ${uiState.sortOrder.name}"
+                                )
+                            }
+
+                            // Settings Menu Button
+                            IconButton(
+                                onClick = { viewModel.setSettingsDialogVisible(true) },
+                                modifier = Modifier.testTag("settings_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Settings,
+                                    contentDescription = "Settings"
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
+                    )
+                }
 
                 // Scanning Progress Indicator
                 if (uiState.isLoadingMedia) {
@@ -319,164 +454,166 @@ fun GalleryScreen(
                     )
                 }
 
-                // Search Bar Input (when active)
-                AnimatedVisibility(
-                    visible = uiState.isSearching,
-                    enter = fadeIn(),
-                    exit = fadeOut()
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                if (!uiState.isSelectionMode) {
+                    // Search Bar Input (when active)
+                    AnimatedVisibility(
+                        visible = uiState.isSearching,
+                        enter = fadeIn(),
+                        exit = fadeOut()
                     ) {
-                        OutlinedTextField(
-                            value = uiState.searchQuery,
-                            onValueChange = { viewModel.setSearchQuery(it) },
-                            placeholder = { Text("Search by title, place, or notes...") },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                            trailingIcon = {
-                                if (uiState.searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                                        Icon(Icons.Default.Clear, contentDescription = "Clear search")
-                                    }
-                                }
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(16.dp),
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .testTag("search_text_input")
-                        )
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = uiState.searchQuery,
+                                onValueChange = { viewModel.setSearchQuery(it) },
+                                placeholder = { Text("Search by title, place, or notes...") },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                trailingIcon = {
+                                    if (uiState.searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                            Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                                        }
+                                    }
+                                },
+                                singleLine = true,
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("search_text_input")
+                            )
+                        }
                     }
-                }
 
-                // Filter Chips Row (Media type & Active filters)
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // If a location filter is active, show clearable chip first
-                    if (uiState.selectedLocationFilter != null) {
+                    // Filter Chips Row (Media type & Active filters)
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // If a location filter is active, show clearable chip first
+                        if (uiState.selectedLocationFilter != null) {
+                            item {
+                                InputChip(
+                                    selected = true,
+                                    onClick = { viewModel.setSelectedLocationFilter(null) },
+                                    label = { Text("Place: ${uiState.selectedLocationFilter}") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.LocationOn,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Clear location filter",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                            }
+                        }
+
+                        // Media Type Filters
                         item {
-                            InputChip(
-                                selected = true,
-                                onClick = { viewModel.setSelectedLocationFilter(null) },
-                                label = { Text("Place: ${uiState.selectedLocationFilter}") },
+                            FilterChip(
+                                selected = uiState.typeFilter == MediaTypeFilter.ALL,
+                                onClick = { viewModel.setMediaTypeFilter(MediaTypeFilter.ALL) },
+                                label = { Text("All") },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.testTag("filter_all")
+                            )
+                        }
+
+                        item {
+                            FilterChip(
+                                selected = uiState.typeFilter == MediaTypeFilter.PHOTOS,
+                                onClick = { viewModel.setMediaTypeFilter(MediaTypeFilter.PHOTOS) },
+                                label = { Text("Photos") },
                                 leadingIcon = {
                                     Icon(
-                                        Icons.Default.LocationOn,
+                                        Icons.Outlined.Photo,
                                         contentDescription = null,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 },
-                                trailingIcon = {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Clear location filter",
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                },
-                                shape = RoundedCornerShape(12.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.testTag("filter_photos")
                             )
                         }
-                    }
 
-                    // Media Type Filters
-                    item {
-                        FilterChip(
-                            selected = uiState.typeFilter == MediaTypeFilter.ALL,
-                            onClick = { viewModel.setMediaTypeFilter(MediaTypeFilter.ALL) },
-                            label = { Text("All") },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.testTag("filter_all")
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = uiState.typeFilter == MediaTypeFilter.PHOTOS,
-                            onClick = { viewModel.setMediaTypeFilter(MediaTypeFilter.PHOTOS) },
-                            label = { Text("Photos") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.Photo,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.testTag("filter_photos")
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = uiState.typeFilter == MediaTypeFilter.VIDEOS,
-                            onClick = { viewModel.setMediaTypeFilter(MediaTypeFilter.VIDEOS) },
-                            label = { Text("Videos") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.Videocam,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.testTag("filter_videos")
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = uiState.typeFilter == MediaTypeFilter.FAVORITES,
-                            onClick = { viewModel.setMediaTypeFilter(MediaTypeFilter.FAVORITES) },
-                            label = { Text("Favorites") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Favorite,
-                                    contentDescription = null,
-                                    tint = RoseFavorite,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.testTag("filter_favorites")
-                        )
-                    }
-
-                    // Active tag filter clearable chip
-                    if (uiState.selectedTagFilter != null) {
                         item {
-                            InputChip(
-                                selected = true,
-                                onClick = { viewModel.setSelectedTagFilter(null) },
-                                label = { Text("#${uiState.selectedTagFilter}") },
-                                trailingIcon = {
+                            FilterChip(
+                                selected = uiState.typeFilter == MediaTypeFilter.VIDEOS,
+                                onClick = { viewModel.setMediaTypeFilter(MediaTypeFilter.VIDEOS) },
+                                label = { Text("Videos") },
+                                leadingIcon = {
                                     Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Clear tag filter",
+                                        Icons.Outlined.Videocam,
+                                        contentDescription = null,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 },
-                                shape = RoundedCornerShape(12.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.testTag("filter_videos")
                             )
                         }
-                    }
 
-                    // Popular tags quick filter
-                    uiState.availableTags.take(8).forEach { tag ->
-                        if (tag != uiState.selectedTagFilter) {
+                        item {
+                            FilterChip(
+                                selected = uiState.typeFilter == MediaTypeFilter.FAVORITES,
+                                onClick = { viewModel.setMediaTypeFilter(MediaTypeFilter.FAVORITES) },
+                                label = { Text("Favorites") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Favorite,
+                                        contentDescription = null,
+                                        tint = RoseFavorite,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.testTag("filter_favorites")
+                            )
+                        }
+
+                        // Active tag filter clearable chip
+                        if (uiState.selectedTagFilter != null) {
                             item {
-                                FilterChip(
-                                    selected = false,
-                                    onClick = { viewModel.setSelectedTagFilter(tag) },
-                                    label = { Text("#$tag") },
+                                InputChip(
+                                    selected = true,
+                                    onClick = { viewModel.setSelectedTagFilter(null) },
+                                    label = { Text("#${uiState.selectedTagFilter}") },
+                                    trailingIcon = {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Clear tag filter",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
                                     shape = RoundedCornerShape(12.dp)
                                 )
+                            }
+                        }
+
+                        // Popular tags quick filter
+                        uiState.availableTags.take(8).forEach { tag ->
+                            if (tag != uiState.selectedTagFilter) {
+                                item {
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = { viewModel.setSelectedTagFilter(tag) },
+                                        label = { Text("#$tag") },
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -484,86 +621,90 @@ fun GalleryScreen(
             }
         },
         bottomBar = {
-            // Material 3 Navigation Bar for View Modes: By Date (Timeline), By Location (Places), All (Grid)
-            NavigationBar(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("bottom_navigation_bar")
-            ) {
-                NavigationBarItem(
-                    selected = uiState.viewMode == GalleryViewMode.TIMELINE,
-                    onClick = { viewModel.selectViewMode(GalleryViewMode.TIMELINE) },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Today,
-                            contentDescription = "Timeline by Date"
-                        )
-                    },
-                    label = { Text("Photos") },
-                    modifier = Modifier.testTag("nav_item_timeline")
-                )
-
-                NavigationBarItem(
-                    selected = uiState.viewMode == GalleryViewMode.ALBUMS,
-                    onClick = { viewModel.selectViewMode(GalleryViewMode.ALBUMS) },
-                    icon = {
-                        BadgedBox(badge = {
-                            if (uiState.albums.isNotEmpty()) {
-                                Badge { Text("${uiState.albums.size}") }
-                            }
-                        }) {
+            if (!uiState.isSelectionMode) {
+                // Material 3 Navigation Bar for View Modes: By Date (Timeline), By Location (Places), All (Grid)
+                NavigationBar(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("bottom_navigation_bar")
+                ) {
+                    NavigationBarItem(
+                        selected = uiState.viewMode == GalleryViewMode.TIMELINE,
+                        onClick = { viewModel.selectViewMode(GalleryViewMode.TIMELINE) },
+                        icon = {
                             Icon(
-                                imageVector = Icons.Default.CollectionsBookmark,
-                                contentDescription = "Albums"
+                                imageVector = Icons.Default.Today,
+                                contentDescription = "Timeline by Date"
                             )
-                        }
-                    },
-                    label = { Text("Albums") },
-                    modifier = Modifier.testTag("nav_item_albums")
-                )
+                        },
+                        label = { Text("Photos") },
+                        modifier = Modifier.testTag("nav_item_timeline")
+                    )
 
-                NavigationBarItem(
-                    selected = uiState.viewMode == GalleryViewMode.PLACES,
-                    onClick = { viewModel.selectViewMode(GalleryViewMode.PLACES) },
-                    icon = {
-                        BadgedBox(badge = {
-                            if (uiState.availableLocations.isNotEmpty()) {
-                                Badge { Text("${uiState.availableLocations.size}") }
+                    NavigationBarItem(
+                        selected = uiState.viewMode == GalleryViewMode.ALBUMS,
+                        onClick = { viewModel.selectViewMode(GalleryViewMode.ALBUMS) },
+                        icon = {
+                            BadgedBox(badge = {
+                                if (uiState.albums.isNotEmpty()) {
+                                    Badge { Text("${uiState.albums.size}") }
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.CollectionsBookmark,
+                                    contentDescription = "Albums"
+                                )
                             }
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.LocationOn,
-                                contentDescription = "Places by Location"
-                            )
-                        }
-                    },
-                    label = { Text("By Location") },
-                    modifier = Modifier.testTag("nav_item_places")
-                )
+                        },
+                        label = { Text("Albums") },
+                        modifier = Modifier.testTag("nav_item_albums")
+                    )
 
-                NavigationBarItem(
-                    selected = uiState.viewMode == GalleryViewMode.GRID,
-                    onClick = { viewModel.selectViewMode(GalleryViewMode.GRID) },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.GridView,
-                            contentDescription = "All Media Grid"
-                        )
-                    },
-                    label = { Text("Grid") },
-                    modifier = Modifier.testTag("nav_item_grid")
-                )
+                    NavigationBarItem(
+                        selected = uiState.viewMode == GalleryViewMode.PLACES,
+                        onClick = { viewModel.selectViewMode(GalleryViewMode.PLACES) },
+                        icon = {
+                            BadgedBox(badge = {
+                                if (uiState.availableLocations.isNotEmpty()) {
+                                    Badge { Text("${uiState.availableLocations.size}") }
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = "Places by Location"
+                                )
+                            }
+                        },
+                        label = { Text("By Location") },
+                        modifier = Modifier.testTag("nav_item_places")
+                    )
+
+                    NavigationBarItem(
+                        selected = uiState.viewMode == GalleryViewMode.GRID,
+                        onClick = { viewModel.selectViewMode(GalleryViewMode.GRID) },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.GridView,
+                                contentDescription = "All Media Grid"
+                            )
+                        },
+                        label = { Text("Grid") },
+                        modifier = Modifier.testTag("nav_item_grid")
+                    )
+                }
             }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { viewModel.showAddDialog(true) },
-                icon = { Icon(Icons.Default.Add, contentDescription = "Add Media") },
-                text = { Text("Add Media") },
-                modifier = Modifier
-                    .navigationBarsPadding()
-                    .testTag("add_media_fab")
-            )
+            if (!uiState.isSelectionMode) {
+                ExtendedFloatingActionButton(
+                    onClick = { viewModel.showAddDialog(true) },
+                    icon = { Icon(Icons.Default.Add, contentDescription = "Add Media") },
+                    text = { Text("Add Media") },
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .testTag("add_media_fab")
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -628,6 +769,7 @@ fun GalleryScreen(
                                 uiState = uiState,
                                 onBack = { viewModel.selectAlbum(null) },
                                 onMediaClick = { viewModel.openDetailViewer(it) },
+                                onMediaLongClick = { viewModel.toggleSelection(it.id) },
                                 onToggleFavorite = { viewModel.toggleFavorite(it) },
                                 onZoomIn = { viewModel.zoomInGrid() },
                                 onZoomOut = { viewModel.zoomOutGrid() }
@@ -664,6 +806,7 @@ fun GalleryScreen(
                             onGrantPermission = { permissionLauncher.launch(mediaPermissions) },
                             onRefreshMedia = { viewModel.refreshDeviceMedia() },
                             onMediaClick = { viewModel.openDetailViewer(it) },
+                            onMediaLongClick = { viewModel.toggleSelection(it.id) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
                             onLocationFilter = { viewModel.setSelectedLocationFilter(it) },
                             onZoomIn = { viewModel.zoomInGrid() },
@@ -679,6 +822,7 @@ fun GalleryScreen(
                             onGrantPermission = { permissionLauncher.launch(mediaPermissions) },
                             onRefreshMedia = { viewModel.refreshDeviceMedia() },
                             onMediaClick = { viewModel.openDetailViewer(it) },
+                            onMediaLongClick = { viewModel.toggleSelection(it.id) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
                             onZoomIn = { viewModel.zoomInGrid() },
                             onZoomOut = { viewModel.zoomOutGrid() }
@@ -745,6 +889,47 @@ fun GalleryScreen(
             onRequestPermission = { permissionLauncher.launch(mediaPermissions) }
         )
     }
+
+    // Batch Delete Confirmation Dialog
+    if (showBatchDeleteDialog) {
+        val count = uiState.selectedItemIds.size
+        AlertDialog(
+            onDismissRequest = { showBatchDeleteDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text("Delete $count ${if (count == 1) "item" else "items"}?")
+            },
+            text = {
+                Text("Are you sure you want to delete the selected ${if (count == 1) "memory" else "memories"}? This will permanently remove them from the gallery.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteSelectedItems()
+                        showBatchDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("confirm_batch_delete_button")
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showBatchDeleteDialog = false },
+                    modifier = Modifier.testTag("cancel_batch_delete_button")
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -753,6 +938,7 @@ private fun TimelineContent(
     onGrantPermission: () -> Unit,
     onRefreshMedia: () -> Unit,
     onMediaClick: (com.example.data.MediaItem) -> Unit,
+    onMediaLongClick: (com.example.data.MediaItem) -> Unit = {},
     onToggleFavorite: (com.example.data.MediaItem) -> Unit,
     onLocationFilter: (String) -> Unit,
     onZoomIn: () -> Unit,
@@ -842,7 +1028,16 @@ private fun TimelineContent(
                         item = item,
                         gridColumns = uiState.gridColumns,
                         showVideoDurationBadge = uiState.showVideoDurationBadge,
-                        onClick = { onMediaClick(item) },
+                        isSelected = item.id in uiState.selectedItemIds,
+                        isSelectionMode = uiState.isSelectionMode,
+                        onClick = {
+                            if (uiState.isSelectionMode) {
+                                onMediaLongClick(item)
+                            } else {
+                                onMediaClick(item)
+                            }
+                        },
+                        onLongClick = { onMediaLongClick(item) },
                         onToggleFavorite = { onToggleFavorite(item) }
                     )
                 }
@@ -1095,6 +1290,7 @@ private fun AlbumDetailContent(
     uiState: GalleryUiState,
     onBack: () -> Unit,
     onMediaClick: (com.example.data.MediaItem) -> Unit,
+    onMediaLongClick: (com.example.data.MediaItem) -> Unit = {},
     onToggleFavorite: (com.example.data.MediaItem) -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit
@@ -1179,7 +1375,16 @@ private fun AlbumDetailContent(
                             item = item,
                             gridColumns = uiState.gridColumns,
                             showVideoDurationBadge = uiState.showVideoDurationBadge,
-                            onClick = { onMediaClick(item) },
+                            isSelected = item.id in uiState.selectedItemIds,
+                            isSelectionMode = uiState.isSelectionMode,
+                            onClick = {
+                                if (uiState.isSelectionMode) {
+                                    onMediaLongClick(item)
+                                } else {
+                                    onMediaClick(item)
+                                }
+                            },
+                            onLongClick = { onMediaLongClick(item) },
                             onToggleFavorite = { onToggleFavorite(item) }
                         )
                     }
@@ -1211,6 +1416,7 @@ private fun GridContent(
     onGrantPermission: () -> Unit,
     onRefreshMedia: () -> Unit,
     onMediaClick: (com.example.data.MediaItem) -> Unit,
+    onMediaLongClick: (com.example.data.MediaItem) -> Unit = {},
     onToggleFavorite: (com.example.data.MediaItem) -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit
@@ -1273,7 +1479,16 @@ private fun GridContent(
                     item = item,
                     gridColumns = uiState.gridColumns,
                     showVideoDurationBadge = uiState.showVideoDurationBadge,
-                    onClick = { onMediaClick(item) },
+                    isSelected = item.id in uiState.selectedItemIds,
+                    isSelectionMode = uiState.isSelectionMode,
+                    onClick = {
+                        if (uiState.isSelectionMode) {
+                            onMediaLongClick(item)
+                        } else {
+                            onMediaClick(item)
+                        }
+                    },
+                    onLongClick = { onMediaLongClick(item) },
                     onToggleFavorite = { onToggleFavorite(item) }
                 )
             }

@@ -1,7 +1,10 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -52,14 +56,18 @@ private val BottomOverlayGradient = Brush.verticalGradient(
 
 /**
  * Ultra-fast, lightweight MediaCard composable.
- * Bypasses heavy Card elevation/canvas passes by using flat clipped Box.
+ * Supports tap to view (or toggle selection), and long-press to enter multi-select mode.
  * Automatically adapts complexity based on grid column density (2, 3, 4, 5 columns).
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaCard(
     item: MediaItem,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    isSelected: Boolean = false,
+    isSelectionMode: Boolean = false,
     gridColumns: Int = 3,
     showVideoDurationBadge: Boolean = true,
     modifier: Modifier = Modifier
@@ -89,7 +97,19 @@ fun MediaCard(
             .aspectRatio(1f)
             .clip(RoundedCornerShape(cornerRadius))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick)
+            .then(
+                if (isSelected) {
+                    Modifier.border(
+                        width = 3.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(cornerRadius)
+                    )
+                } else Modifier
+            )
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
             .testTag("media_card_${item.id}")
     ) {
         AsyncImage(
@@ -99,83 +119,146 @@ fun MediaCard(
             contentScale = ContentScale.Crop
         )
 
-        // Top badges overlay: Video indicator & Favorite icon
-        val showVideoBadge = item.type == MediaType.VIDEO
-        val showFavoriteButton = item.isFavorite || gridColumns <= 3
-
-        if (showVideoBadge || showFavoriteButton) {
-            Row(
+        // Semi-transparent primary scrim overlay when selected
+        if (isSelected) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(if (gridColumns >= 4) 4.dp else 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.28f))
+            )
+        }
+
+        // Selection indicator checkmark badge (visible in selection mode)
+        if (isSelectionMode) {
+            val indicatorSize = if (gridColumns >= 4) 22.dp else 26.dp
+            val checkIconSize = if (gridColumns >= 4) 14.dp else 16.dp
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(if (gridColumns >= 4) 4.dp else 6.dp)
+                    .size(indicatorSize)
+                    .clip(CircleShape)
+                    .background(
+                        if (isSelected) MaterialTheme.colorScheme.primary
+                        else Color.Black.copy(alpha = 0.45f)
+                    )
+                    .then(
+                        if (!isSelected) Modifier.border(1.5.dp, Color.White, CircleShape)
+                        else Modifier
+                    )
+                    .testTag("selection_badge_${item.id}"),
+                contentAlignment = Alignment.Center
             ) {
-                if (showVideoBadge) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.Black.copy(alpha = 0.65f))
-                            .padding(
-                                horizontal = if (gridColumns >= 4) 4.dp else 6.dp,
-                                vertical = if (gridColumns >= 4) 2.dp else 3.dp
-                            )
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Video",
-                                tint = Color.White,
-                                modifier = Modifier.size(if (gridColumns >= 4) 11.dp else 13.dp)
-                            )
-                            if (showVideoDurationBadge && gridColumns <= 3 && item.durationSeconds > 0) {
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text(
-                                    text = DateTimeUtils.formatVideoDuration(item.durationSeconds),
-                                    color = Color.White,
-                                    fontSize = if (gridColumns == 2) 11.sp else 10.sp,
-                                    fontWeight = FontWeight.SemiBold
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(checkIconSize)
+                    )
+                }
+            }
+
+            // In selection mode, if item is a video, show video icon top-end
+            if (item.type == MediaType.VIDEO) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(if (gridColumns >= 4) 4.dp else 6.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.Black.copy(alpha = 0.65f))
+                        .padding(
+                            horizontal = if (gridColumns >= 4) 4.dp else 6.dp,
+                            vertical = if (gridColumns >= 4) 2.dp else 3.dp
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Video",
+                        tint = Color.White,
+                        modifier = Modifier.size(if (gridColumns >= 4) 11.dp else 13.dp)
+                    )
+                }
+            }
+        } else {
+            // Normal badges overlay: Video indicator & Favorite icon
+            val showVideoBadge = item.type == MediaType.VIDEO
+            val showFavoriteButton = item.isFavorite || gridColumns <= 3
+
+            if (showVideoBadge || showFavoriteButton) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(if (gridColumns >= 4) 4.dp else 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (showVideoBadge) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.Black.copy(alpha = 0.65f))
+                                .padding(
+                                    horizontal = if (gridColumns >= 4) 4.dp else 6.dp,
+                                    vertical = if (gridColumns >= 4) 2.dp else 3.dp
                                 )
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = "Video",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(if (gridColumns >= 4) 11.dp else 13.dp)
+                                )
+                                if (showVideoDurationBadge && gridColumns <= 3 && item.durationSeconds > 0) {
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text(
+                                        text = DateTimeUtils.formatVideoDuration(item.durationSeconds),
+                                        color = Color.White,
+                                        fontSize = if (gridColumns == 2) 11.sp else 10.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
                     }
-                } else {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
 
-                if (item.isFavorite) {
-                    Box(
-                        modifier = Modifier
-                            .size(if (gridColumns >= 4) 24.dp else 28.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.45f))
-                            .clickable(onClick = onToggleFavorite)
-                            .testTag("favorite_button_${item.id}"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Favorite,
-                            contentDescription = "Unfavorite",
-                            tint = RoseFavorite,
-                            modifier = Modifier.size(if (gridColumns >= 4) 14.dp else 16.dp)
-                        )
-                    }
-                } else if (gridColumns <= 2) {
-                    Box(
-                        modifier = Modifier
-                            .size(30.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.35f))
-                            .clickable(onClick = onToggleFavorite)
-                            .testTag("favorite_button_${item.id}"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.FavoriteBorder,
-                            contentDescription = "Favorite",
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
+                    if (item.isFavorite) {
+                        Box(
+                            modifier = Modifier
+                                .size(if (gridColumns >= 4) 24.dp else 28.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.45f))
+                                .clickable(onClick = onToggleFavorite)
+                                .testTag("favorite_button_${item.id}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Favorite,
+                                contentDescription = "Unfavorite",
+                                tint = RoseFavorite,
+                                modifier = Modifier.size(if (gridColumns >= 4) 14.dp else 16.dp)
+                            )
+                        }
+                    } else if (gridColumns <= 2) {
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.35f))
+                                .clickable(onClick = onToggleFavorite)
+                                .testTag("favorite_button_${item.id}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.FavoriteBorder,
+                                contentDescription = "Favorite",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }

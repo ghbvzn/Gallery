@@ -42,7 +42,8 @@ data class ViewSettings(
     val aiTaggingNotice: String? = null,
     val hasMediaPermission: Boolean = false,
     val isLoadingMedia: Boolean = false,
-    val permissionRequested: Boolean = false
+    val permissionRequested: Boolean = false,
+    val selectedItemIds: Set<Long> = emptySet()
 )
 
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
@@ -228,7 +229,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             aiTaggingNotice = settings.aiTaggingNotice,
             hasMediaPermission = settings.hasMediaPermission,
             isLoadingMedia = settings.isLoadingMedia,
-            permissionRequested = settings.permissionRequested
+            permissionRequested = settings.permissionRequested,
+            selectedItemIds = settings.selectedItemIds
         )
     }.stateIn(
         scope = viewModelScope,
@@ -524,6 +526,52 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearAiNotice() {
         _settings.update { it.copy(aiTaggingNotice = null) }
+    }
+
+    fun toggleSelection(itemId: Long) {
+        _settings.update { current ->
+            val updated = current.selectedItemIds.toMutableSet()
+            if (updated.contains(itemId)) {
+                updated.remove(itemId)
+            } else {
+                updated.add(itemId)
+            }
+            current.copy(selectedItemIds = updated)
+        }
+    }
+
+    fun selectAll() {
+        val allIds = uiState.value.filteredMedia.map { it.id }.toSet()
+        _settings.update { it.copy(selectedItemIds = allIds) }
+    }
+
+    fun clearSelection() {
+        _settings.update { it.copy(selectedItemIds = emptySet()) }
+    }
+
+    fun deleteSelectedItems() {
+        val idsToDelete = _settings.value.selectedItemIds.toList()
+        if (idsToDelete.isEmpty()) return
+        viewModelScope.launch {
+            repository.deleteBatch(idsToDelete)
+            _settings.update { current ->
+                val newActive = if (current.activeItem?.id in idsToDelete) null else current.activeItem
+                current.copy(
+                    selectedItemIds = emptySet(),
+                    activeItem = newActive
+                )
+            }
+        }
+    }
+
+    fun toggleFavoriteSelected() {
+        val ids = _settings.value.selectedItemIds.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val selectedMedia = uiState.value.allMedia.filter { it.id in ids }
+            val anyNotFavorite = selectedMedia.any { !it.isFavorite }
+            repository.setFavoriteBatch(ids, anyNotFavorite)
+        }
     }
 
     fun deleteItem(id: Long) {
