@@ -19,16 +19,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.CalendarToday
-import androidx.compose.material.icons.outlined.Label
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -76,6 +78,7 @@ fun AddMediaDialog(
     availableLocations: List<String>,
     availableTags: List<String> = emptyList(),
     onDismiss: () -> Unit,
+    onOpenCamera: () -> Unit = {},
     onAddMedia: (
         title: String,
         uriString: String,
@@ -197,6 +200,24 @@ fun AddMediaDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(if (selectedType == MediaType.PHOTO) "Choose Image from Device" else "Choose Video from Device")
+                }
+
+                FilledTonalButton(
+                    onClick = {
+                        onDismiss()
+                        onOpenCamera()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dialog_open_camera_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PhotoCamera,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Capture with In-App Camera")
                 }
 
                 if (uriString.isNotBlank()) {
@@ -322,7 +343,7 @@ fun AddMediaDialog(
                             value = tagInput,
                             onValueChange = { tagInput = it },
                             placeholder = { Text("Add a tag (e.g. Travel)") },
-                            leadingIcon = { Icon(Icons.Outlined.Label, contentDescription = null) },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Label, contentDescription = null) },
                             singleLine = true,
                             modifier = Modifier
                                 .weight(1f)

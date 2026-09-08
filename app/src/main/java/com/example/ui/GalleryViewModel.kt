@@ -1,10 +1,15 @@
 package com.example.ui
 
 import android.app.Application
+import android.net.Uri
 import android.util.Log
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.DeviceMediaScanner
+import com.example.data.ExifMetadataHelper
 import com.example.data.GalleryDatabase
 import com.example.data.GalleryRepository
 import com.example.data.MediaItem
@@ -12,6 +17,7 @@ import com.example.data.MediaType
 import com.example.data.ai.MediaAnalyzer
 import com.example.ui.util.DateTimeUtils
 import androidx.compose.runtime.Immutable
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +25,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Immutable
 data class ViewSettings(
@@ -43,7 +50,8 @@ data class ViewSettings(
     val hasMediaPermission: Boolean = false,
     val isLoadingMedia: Boolean = false,
     val permissionRequested: Boolean = false,
-    val selectedItemIds: Set<Long> = emptySet()
+    val selectedItemIds: Set<Long> = emptySet(),
+    val showCameraScreen: Boolean = false
 )
 
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
@@ -230,7 +238,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             hasMediaPermission = settings.hasMediaPermission,
             isLoadingMedia = settings.isLoadingMedia,
             permissionRequested = settings.permissionRequested,
-            selectedItemIds = settings.selectedItemIds
+            selectedItemIds = settings.selectedItemIds,
+            showCameraScreen = settings.showCameraScreen
         )
     }.stateIn(
         scope = viewModelScope,
@@ -359,6 +368,36 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _settings.update { it.copy(showAddDialog = show) }
     }
 
+    fun openCamera() {
+        _settings.update { it.copy(showCameraScreen = true) }
+    }
+
+    fun closeCamera() {
+        _settings.update { it.copy(showCameraScreen = false) }
+    }
+
+    fun onMediaCaptured(
+        fileUri: Uri,
+        type: MediaType,
+        durationSeconds: Int = 0,
+        resolution: String = "High Definition"
+    ) {
+        val timestamp = System.currentTimeMillis()
+        val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date(timestamp))
+        val defaultTitle = if (type == MediaType.PHOTO) "IMG_$dateStr" else "VID_$dateStr"
+        addMedia(
+            title = defaultTitle,
+            uriString = fileUri.toString(),
+            type = type,
+            location = "Camera",
+            dateEpochMillis = timestamp,
+            durationSeconds = durationSeconds,
+            resolution = resolution,
+            notes = if (type == MediaType.PHOTO) "Photo captured with in-app camera" else "Video captured with in-app camera",
+            tags = listOf(if (type == MediaType.PHOTO) "photo" else "video", "camera")
+        )
+    }
+
     fun startEditing(item: MediaItem) {
         _settings.update { it.copy(editingItem = item) }
     }
@@ -379,21 +418,38 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         tags: List<String> = emptyList()
     ) {
         viewModelScope.launch {
+            // Read EXIF and parse dimensions on background thread
+            val (exifLat, exifLon, effectiveRes) = withContext(Dispatchers.IO) {
+                if (type == MediaType.PHOTO) {
+                    val exif = ExifMetadataHelper.readExifData(getApplication(), uriString)
+                    val res = if (resolution == "High Definition" && exif.imageWidth > 0 && exif.imageHeight > 0) {
+                        "${exif.imageWidth}x${exif.imageHeight}"
+                    } else resolution
+                    Triple(exif.latitude, exif.longitude, res)
+                } else {
+                    Triple(null, null, resolution)
+                }
+            }
+
             val newItem = MediaItem(
                 title = title.ifBlank { if (type == MediaType.PHOTO) "New Photo" else "New Video" },
                 uriString = uriString,
                 type = type,
                 locationName = location.ifBlank { "Home" },
+                latitude = exifLat,
+                longitude = exifLon,
                 dateEpochMillis = dateEpochMillis,
                 durationSeconds = durationSeconds,
-                resolution = resolution,
+                resolution = effectiveRes,
                 notes = notes,
                 tags = tags
             )
-            val newId = repository.insert(newItem)
+            val newId = withContext(Dispatchers.IO) {
+                repository.insert(newItem)
+            }
             _settings.update { it.copy(showAddDialog = false) }
 
-            // Auto-trigger AI analysis on newly uploaded media
+            // Auto-trigger AI analysis on newly uploaded media on background thread
             val created = newItem.copy(id = newId)
             analyzeMediaForTags(created)
         }
@@ -603,11 +659,13 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _settings.update { it.copy(isLoadingMedia = true) }
             try {
-                repository.cleanupDemoData()
-                val scanned = deviceMediaScanner.scanDeviceMedia()
-                repository.syncDeviceMedia(scanned)
+                withContext(Dispatchers.IO) {
+                    repository.cleanupDemoData()
+                    val scanned = deviceMediaScanner.scanDeviceMedia()
+                    repository.syncDeviceMedia(scanned)
+                }
             } catch (e: Exception) {
-                Log.e("GalleryViewModel", "Failed to refresh device media", e)
+                Log.w("GalleryViewModel", "Failed to refresh device media: ${e.message}")
             } finally {
                 _settings.update { it.copy(isLoadingMedia = false) }
             }

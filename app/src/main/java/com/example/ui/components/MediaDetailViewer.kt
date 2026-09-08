@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Replay10
@@ -107,16 +108,22 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.size.Precision
 import coil.size.Size
+import com.example.data.ExifMetadataHelper
+import com.example.data.MediaExifData
 import com.example.data.MediaItem
 import com.example.data.MediaType
 import com.example.ui.theme.RoseFavorite
 import com.example.ui.util.DateTimeUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalLayoutApi::class)
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun MediaDetailViewer(
     item: MediaItem,
@@ -139,8 +146,22 @@ fun MediaDetailViewer(
     var showAddCustomTagDialog by remember { mutableStateOf(false) }
     var customTagInput by remember { mutableStateOf("") }
 
-    // Real Media3 ExoPlayer video playback state
     val context = LocalContext.current
+
+    // Asynchronously load EXIF metadata on background thread (Dispatchers.IO)
+    var exifData by remember(item.uriString) { mutableStateOf<MediaExifData?>(null) }
+    LaunchedEffect(item.uriString) {
+        if (item.type == MediaType.PHOTO) {
+            val data = withContext(Dispatchers.IO) {
+                ExifMetadataHelper.readExifData(context, item.uriString)
+            }
+            exifData = data
+        } else {
+            exifData = null
+        }
+    }
+
+    // Real Media3 ExoPlayer video playback state
     var isPlaying by remember(item.id) { mutableStateOf(false) }
     var isBuffering by remember(item.id) { mutableStateOf(false) }
     var videoProgress by remember(item.id) { mutableFloatStateOf(0f) }
@@ -304,10 +325,11 @@ fun MediaDetailViewer(
                         val fullResRequest = remember(item.uriString) {
                             ImageRequest.Builder(context)
                                 .data(item.uriString)
-                                .size(Size.ORIGINAL)
-                                .precision(Precision.EXACT)
-                                .crossfade(true)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .networkCachePolicy(CachePolicy.ENABLED)
                                 .allowHardware(true)
+                                .crossfade(true)
                                 .build()
                         }
                         AsyncImage(
@@ -1208,7 +1230,7 @@ fun MediaDetailViewer(
                                 )
                                 if (item.latitude != null && item.longitude != null) {
                                     Text(
-                                        text = String.format("%.4f° N, %.4f° W", item.latitude, item.longitude),
+                                        text = String.format(java.util.Locale.getDefault(), "%.4f° N, %.4f° W", item.latitude, item.longitude),
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -1258,6 +1280,97 @@ fun MediaDetailViewer(
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+
+                        // Background-loaded EXIF Metadata (Camera, Exposure, Aperture, ISO, GPS)
+                        exifData?.let { exif ->
+                            if (exif.hasCameraDetails || (exif.latitude != null && exif.longitude != null)) {
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                                exif.formattedCamera?.let { camera ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PhotoCamera,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(
+                                                text = "Camera Model (EXIF)",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = camera,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+
+                                exif.formattedShootingSpecs?.let { specs ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Photo,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(
+                                                text = "Shooting Specs (EXIF)",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = specs,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (exif.latitude != null && exif.longitude != null) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.LocationOn,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(
+                                                text = "GPS Coordinates (EXIF)",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = "${String.format(java.util.Locale.US, "%.5f", exif.latitude)}°, ${String.format(java.util.Locale.US, "%.5f", exif.longitude)}°",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

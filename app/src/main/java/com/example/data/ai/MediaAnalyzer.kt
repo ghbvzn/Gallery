@@ -179,7 +179,7 @@ class MediaAnalyzer(private val context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && (uriString.startsWith("content://") || uriString.startsWith("file://"))) {
                 try {
                     val thumb = context.contentResolver.loadThumbnail(uri, android.util.Size(512, 512), null)
-                    if (thumb != null) return thumb
+                    return thumb
                 } catch (e: Throwable) {
                     // Fall back to retriever/stream
                 }

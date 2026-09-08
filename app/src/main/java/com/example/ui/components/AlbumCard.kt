@@ -30,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,8 +45,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
-import coil.size.Scale
 import com.example.ui.Album
 import com.example.ui.theme.AmberAccent
 import com.example.ui.theme.RoseFavorite
@@ -98,12 +99,16 @@ fun AlbumCard(
             ) {
                 if (album.coverItem != null) {
                     val coverUri = album.coverItem.uriString
-                    val imageRequest = ImageRequest.Builder(context)
-                        .data(coverUri)
-                        .crossfade(200)
-                        .size(360, 360)
-                        .scale(Scale.FILL)
-                        .build()
+                    val imageRequest = remember(coverUri) {
+                        ImageRequest.Builder(context)
+                            .data(coverUri)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .networkCachePolicy(CachePolicy.ENABLED)
+                            .allowHardware(true)
+                            .crossfade(false)
+                            .build()
+                    }
 
                     AsyncImage(
                         model = imageRequest,

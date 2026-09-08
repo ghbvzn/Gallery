@@ -103,4 +103,11 @@ class GalleryTaggingRobolectricTest {
             it.contains("Photography", ignoreCase = true)
         })
     }
+
+    @Test
+    fun testExifMetadataHelperBackgroundSafe() = runBlocking {
+        val testUri = "android.resource://com.example/${R.drawable.img_sample_beach}"
+        val exifData = com.example.data.ExifMetadataHelper.readExifData(context, testUri)
+        assertTrue(exifData is com.example.data.MediaExifData)
+    }
 }

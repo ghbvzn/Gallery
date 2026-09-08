@@ -7,10 +7,10 @@ import java.util.Locale
 
 object DateTimeUtils {
 
-    private val fullDateFormat = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault())
-    private val monthYearFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
-    private val shortDateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-    private val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+    private fun getFullDateFormat() = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault())
+    private fun getMonthYearFormat() = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
+    private fun getShortDateFormat() = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+    private fun getTimeFormat() = SimpleDateFormat("h:mm a", Locale.getDefault())
 
     fun formatTimelineHeader(epochMillis: Long): String {
         val itemCal = Calendar.getInstance().apply { timeInMillis = epochMillis }
@@ -28,20 +28,20 @@ object DateTimeUtils {
         if (isYesterday) return "Yesterday"
 
         // If in same year and month
-        return monthYearFormat.format(Date(epochMillis))
+        return getMonthYearFormat().format(Date(epochMillis))
     }
 
     fun formatDateGroupKey(epochMillis: Long): String {
-        return monthYearFormat.format(Date(epochMillis))
+        return getMonthYearFormat().format(Date(epochMillis))
     }
 
     fun formatFullDateTime(epochMillis: Long): String {
         val date = Date(epochMillis)
-        return "${fullDateFormat.format(date)} at ${timeFormat.format(date)}"
+        return "${getFullDateFormat().format(date)} at ${getTimeFormat().format(date)}"
     }
 
     fun formatShortDate(epochMillis: Long): String {
-        return shortDateFormat.format(Date(epochMillis))
+        return getShortDateFormat().format(Date(epochMillis))
     }
 
     fun formatVideoDuration(seconds: Int): String {

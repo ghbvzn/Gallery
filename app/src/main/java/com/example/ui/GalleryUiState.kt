@@ -81,7 +81,8 @@ data class GalleryUiState(
     val hasMediaPermission: Boolean = false,
     val isLoadingMedia: Boolean = false,
     val permissionRequested: Boolean = false,
-    val selectedItemIds: Set<Long> = emptySet()
+    val selectedItemIds: Set<Long> = emptySet(),
+    val showCameraScreen: Boolean = false
 ) {
     val isSelectionMode: Boolean get() = selectedItemIds.isNotEmpty()
 }

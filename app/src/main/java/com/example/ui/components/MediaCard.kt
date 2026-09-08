@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.data.MediaItem
 import com.example.data.MediaType
@@ -74,18 +75,13 @@ fun MediaCard(
 ) {
     val context = LocalContext.current
     val cornerRadius = if (gridColumns >= 4) 6.dp else 10.dp
-    val targetPx = when (gridColumns) {
-        2 -> 720
-        3 -> 540
-        4 -> 380
-        else -> 280
-    }
 
-    val imageRequest = remember(item.uriString, targetPx) {
+    val imageRequest = remember(item.uriString) {
         ImageRequest.Builder(context)
             .data(item.uriString)
-            .size(targetPx, targetPx)
-            .precision(coil.size.Precision.INEXACT)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .networkCachePolicy(CachePolicy.ENABLED)
             .allowHardware(true)
             .crossfade(false)
             .build()

@@ -14,6 +14,7 @@ import coil.ImageLoader
 import coil.decode.VideoFrameDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import coil.request.CachePolicy
 import com.example.ui.GalleryViewModel
 import com.example.ui.screens.GalleryScreen
 import com.example.ui.theme.MyApplicationTheme
@@ -29,7 +30,9 @@ class MainActivity : ComponentActivity() {
         }
         .memoryCache {
             MemoryCache.Builder(this)
-                .maxSizePercent(0.25)
+                .maxSizePercent(0.35)
+                .strongReferencesEnabled(true)
+                .weakReferencesEnabled(true)
                 .build()
         }
         .diskCache {
@@ -38,8 +41,13 @@ class MainActivity : ComponentActivity() {
                 .maxSizeBytes(250L * 1024 * 1024)
                 .build()
         }
+        .memoryCachePolicy(CachePolicy.ENABLED)
+        .diskCachePolicy(CachePolicy.ENABLED)
+        .networkCachePolicy(CachePolicy.ENABLED)
+        .respectCacheHeaders(false)
         .allowHardware(true)
-        .crossfade(true)
+        .allowRgb565(true)
+        .crossfade(false)
         .build()
     Coil.setImageLoader(imageLoader)
 

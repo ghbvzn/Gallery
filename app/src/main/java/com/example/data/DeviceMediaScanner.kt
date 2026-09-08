@@ -1,32 +1,48 @@
 package com.example.data
 
+import android.Manifest
 import android.content.ContentUris
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class DeviceMediaScanner(private val context: Context) {
 
+    private fun hasMediaPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
     suspend fun scanDeviceMedia(): List<MediaItem> = withContext(Dispatchers.IO) {
+        if (!hasMediaPermission()) {
+            return@withContext emptyList()
+        }
+
         val mediaList = mutableListOf<MediaItem>()
         try {
             mediaList.addAll(queryImages())
         } catch (e: Exception) {
-            Log.e("DeviceMediaScanner", "Error querying device images", e)
+            Log.w("DeviceMediaScanner", "Could not query device images: ${e.message}")
         }
         try {
             mediaList.addAll(queryVideos())
         } catch (e: Exception) {
-            Log.e("DeviceMediaScanner", "Error querying device videos", e)
+            Log.w("DeviceMediaScanner", "Could not query device videos: ${e.message}")
         }
         mediaList.sortedByDescending { it.dateEpochMillis }
     }
 
-    private fun queryImages(): List<MediaItem> {
+    private suspend fun queryImages(): List<MediaItem> {
         val items = mutableListOf<MediaItem>()
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
@@ -82,6 +98,12 @@ class DeviceMediaScanner(private val context: Context) {
                     .trim()
                     .ifBlank { "Photo" }
 
+                // Extract EXIF data on background Dispatchers.IO thread
+                val exif = ExifMetadataHelper.readExifData(context, contentUri.toString())
+                val finalWidth = if (width > 0) width else exif.imageWidth
+                val finalHeight = if (height > 0) height else exif.imageHeight
+                val finalResolution = if (finalWidth > 0 && finalHeight > 0) "${finalWidth}x$finalHeight" else resolution
+
                 items.add(
                     MediaItem(
                         id = 0L,
@@ -90,7 +112,9 @@ class DeviceMediaScanner(private val context: Context) {
                         type = MediaType.PHOTO,
                         dateEpochMillis = timeMillis,
                         locationName = bucket,
-                        resolution = resolution,
+                        latitude = exif.latitude,
+                        longitude = exif.longitude,
+                        resolution = finalResolution,
                         notes = "Device image: $displayName"
                     )
                 )

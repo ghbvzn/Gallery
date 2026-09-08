@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PermMedia
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -661,6 +662,19 @@ fun GalleryScreen(
                     )
 
                     NavigationBarItem(
+                        selected = false,
+                        onClick = { viewModel.openCamera() },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.PhotoCamera,
+                                contentDescription = "Camera"
+                            )
+                        },
+                        label = { Text("Camera") },
+                        modifier = Modifier.testTag("nav_item_camera")
+                    )
+
+                    NavigationBarItem(
                         selected = uiState.viewMode == GalleryViewMode.PLACES,
                         onClick = { viewModel.selectViewMode(GalleryViewMode.PLACES) },
                         icon = {
@@ -859,6 +873,7 @@ fun GalleryScreen(
             availableLocations = uiState.availableLocations,
             availableTags = uiState.availableTags,
             onDismiss = { viewModel.showAddDialog(false) },
+            onOpenCamera = { viewModel.openCamera() },
             onAddMedia = { title, uriString, type, location, dateMillis, duration, res, notes, tags ->
                 viewModel.addMedia(title, uriString, type, location, dateMillis, duration, res, notes, tags)
             }
@@ -927,6 +942,16 @@ fun GalleryScreen(
                 ) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    // In-App Camera Screen
+    if (uiState.showCameraScreen) {
+        CameraScreen(
+            onClose = { viewModel.closeCamera() },
+            onMediaCaptured = { uri, type, durationSec, res ->
+                viewModel.onMediaCaptured(uri, type, durationSec, res)
             }
         )
     }
@@ -1022,7 +1047,8 @@ private fun TimelineContent(
 
                 items(
                     items = dateGroup.items,
-                    key = { it.id }
+                    key = { it.id },
+                    contentType = { "media_card" }
                 ) { item ->
                     MediaCard(
                         item = item,
@@ -1254,7 +1280,7 @@ private fun AlbumsContent(
                 )
             }
 
-            items(smartAlbums, key = { it.id }) { album ->
+            items(smartAlbums, key = { it.id }, contentType = { "album_card" }) { album ->
                 AlbumCard(
                     album = album,
                     onClick = { onSelectAlbum(album) }
@@ -1274,7 +1300,7 @@ private fun AlbumsContent(
                 )
             }
 
-            items(regularAlbums, key = { it.id }) { album ->
+            items(regularAlbums, key = { it.id }, contentType = { "album_card" }) { album ->
                 AlbumCard(
                     album = album,
                     onClick = { onSelectAlbum(album) }
@@ -1370,7 +1396,7 @@ private fun AlbumDetailContent(
                     horizontalArrangement = Arrangement.spacedBy(cellSpacing),
                     verticalArrangement = Arrangement.spacedBy(cellSpacing)
                 ) {
-                    items(album.items, key = { it.id }) { item ->
+                    items(album.items, key = { it.id }, contentType = { "media_card" }) { item ->
                         MediaCard(
                             item = item,
                             gridColumns = uiState.gridColumns,
@@ -1474,7 +1500,7 @@ private fun GridContent(
             horizontalArrangement = Arrangement.spacedBy(cellSpacing),
             verticalArrangement = Arrangement.spacedBy(cellSpacing)
         ) {
-            items(uiState.filteredMedia, key = { it.id }) { item ->
+            items(uiState.filteredMedia, key = { it.id }, contentType = { "media_card" }) { item ->
                 MediaCard(
                     item = item,
                     gridColumns = uiState.gridColumns,
