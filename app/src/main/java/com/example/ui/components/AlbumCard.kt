@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.size.Precision
 import com.example.ui.Album
 import com.example.ui.theme.AmberAccent
 import com.example.ui.theme.RoseFavorite
@@ -106,6 +107,8 @@ fun AlbumCard(
                             .diskCachePolicy(CachePolicy.ENABLED)
                             .networkCachePolicy(CachePolicy.ENABLED)
                             .allowHardware(true)
+                            .size(640)
+                            .precision(Precision.INEXACT)
                             .crossfade(false)
                             .build()
                     }

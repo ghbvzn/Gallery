@@ -12,34 +12,54 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+data class DeviceMediaScanResult(
+    val items: List<MediaItem>,
+    /** Media types for which the scan had unrestricted library access. */
+    val fullyScannedTypes: Set<MediaType>
+)
+
 class DeviceMediaScanner(private val context: Context) {
 
-    private fun hasMediaPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
-        } else {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-        }
+    private fun hasPermission(permission: String): Boolean {
+        return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
 
-    suspend fun scanDeviceMedia(): List<MediaItem> = withContext(Dispatchers.IO) {
-        if (!hasMediaPermission()) {
-            return@withContext emptyList()
+    suspend fun scanDeviceMedia(): DeviceMediaScanResult = withContext(Dispatchers.IO) {
+        val legacyAccess = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU &&
+                hasPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
+        val fullImageAccess = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                hasPermission(Manifest.permission.READ_MEDIA_IMAGES)
+        val fullVideoAccess = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                hasPermission(Manifest.permission.READ_MEDIA_VIDEO)
+        val selectedMediaAccess = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                hasPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+
+        val canReadImages = legacyAccess || fullImageAccess || selectedMediaAccess
+        val canReadVideos = legacyAccess || fullVideoAccess || selectedMediaAccess
+        val fullyScannedTypes = buildSet {
+            if (legacyAccess || fullImageAccess) add(MediaType.PHOTO)
+            if (legacyAccess || fullVideoAccess) add(MediaType.VIDEO)
         }
 
         val mediaList = mutableListOf<MediaItem>()
-        try {
-            mediaList.addAll(queryImages())
-        } catch (e: Exception) {
-            Log.w("DeviceMediaScanner", "Could not query device images: ${e.message}")
+        if (canReadImages) {
+            try {
+                mediaList.addAll(queryImages())
+            } catch (e: Exception) {
+                Log.w("DeviceMediaScanner", "Could not query device images: ${e.message}")
+            }
         }
-        try {
-            mediaList.addAll(queryVideos())
-        } catch (e: Exception) {
-            Log.w("DeviceMediaScanner", "Could not query device videos: ${e.message}")
+        if (canReadVideos) {
+            try {
+                mediaList.addAll(queryVideos())
+            } catch (e: Exception) {
+                Log.w("DeviceMediaScanner", "Could not query device videos: ${e.message}")
+            }
         }
-        mediaList.sortedByDescending { it.dateEpochMillis }
+        DeviceMediaScanResult(
+            items = mediaList.sortedByDescending { it.dateEpochMillis },
+            fullyScannedTypes = fullyScannedTypes
+        )
     }
 
     private suspend fun queryImages(): List<MediaItem> {
@@ -98,12 +118,6 @@ class DeviceMediaScanner(private val context: Context) {
                     .trim()
                     .ifBlank { "Photo" }
 
-                // Extract EXIF data on background Dispatchers.IO thread
-                val exif = ExifMetadataHelper.readExifData(context, contentUri.toString())
-                val finalWidth = if (width > 0) width else exif.imageWidth
-                val finalHeight = if (height > 0) height else exif.imageHeight
-                val finalResolution = if (finalWidth > 0 && finalHeight > 0) "${finalWidth}x$finalHeight" else resolution
-
                 items.add(
                     MediaItem(
                         id = 0L,
@@ -112,9 +126,7 @@ class DeviceMediaScanner(private val context: Context) {
                         type = MediaType.PHOTO,
                         dateEpochMillis = timeMillis,
                         locationName = bucket,
-                        latitude = exif.latitude,
-                        longitude = exif.longitude,
-                        resolution = finalResolution,
+                        resolution = resolution,
                         notes = "Device image: $displayName"
                     )
                 )

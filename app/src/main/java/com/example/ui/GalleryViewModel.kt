@@ -18,10 +18,15 @@ import com.example.data.ai.MediaAnalyzer
 import com.example.ui.util.DateTimeUtils
 import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -54,6 +59,31 @@ data class ViewSettings(
     val showCameraScreen: Boolean = false
 )
 
+private data class ContentSettings(
+    val typeFilter: MediaTypeFilter,
+    val sortOrder: SortOrder,
+    val searchQuery: String,
+    val selectedLocationFilter: String?,
+    val selectedTagFilter: String?,
+    val selectedAlbumId: String?
+)
+
+private data class LibraryIndex(
+    val allMedia: List<MediaItem>,
+    val mediaById: Map<Long, MediaItem>,
+    val locationGroups: List<LocationGroup>,
+    val albums: List<Album>,
+    val availableLocations: List<String>,
+    val availableTags: List<String>
+)
+
+private data class DerivedContent(
+    val library: LibraryIndex,
+    val filteredMedia: List<MediaItem>,
+    val dateGroups: List<DateGroup>,
+    val selectedAlbum: Album?
+)
+
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: GalleryRepository
@@ -71,17 +101,53 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     private val _settings = MutableStateFlow(ViewSettings())
 
-    val uiState: StateFlow<GalleryUiState> = combine(
-        repository.allMedia,
-        _settings
-    ) { allMedia: List<MediaItem>, settings: ViewSettings ->
+    private val filterSettings = _settings
+        .map { settings ->
+            ContentSettings(
+                typeFilter = settings.typeFilter,
+                sortOrder = settings.sortOrder,
+                searchQuery = "",
+                selectedLocationFilter = settings.selectedLocationFilter,
+                selectedTagFilter = settings.selectedTagFilter,
+                selectedAlbumId = settings.selectedAlbumId
+            )
+        }
+        .distinctUntilChanged()
 
-        val sortedList = if (settings.sortOrder == SortOrder.NEWEST_FIRST) {
-            allMedia.sortedByDescending { it.dateEpochMillis }
-        } else {
-            allMedia.sortedBy { it.dateEpochMillis }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val debouncedSearchQuery = _settings
+        .map { it.searchQuery }
+        .distinctUntilChanged()
+        .mapLatest { query ->
+            if (query.isNotBlank()) delay(150)
+            query
         }
 
+    private val contentSettings = combine(
+        filterSettings,
+        debouncedSearchQuery
+    ) { settings, searchQuery ->
+        settings.copy(searchQuery = searchQuery)
+    }
+
+    /*
+     * Build the expensive library index only when Room emits changed media. UI-only
+     * changes such as selection, dialogs, or the active viewer no longer regroup the
+     * entire library. Keep this work off the main thread so large libraries cannot
+     * stall Compose frames.
+     */
+    private val libraryIndex = repository.allMedia
+        .map(::buildLibraryIndex)
+        .flowOn(Dispatchers.Default)
+
+    private val derivedContent = combine(libraryIndex, contentSettings) { library, settings ->
+        val sortedList = if (settings.sortOrder == SortOrder.NEWEST_FIRST) {
+            // Room already emits newest-first, so avoid an O(n log n) sort.
+            library.allMedia
+        } else {
+            library.allMedia.asReversed()
+        }
+        val query = settings.searchQuery.trim()
         val filtered = sortedList.filter { item ->
             val matchesType = when (settings.typeFilter) {
                 MediaTypeFilter.ALL -> true
@@ -96,20 +162,18 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             val matchesTag = settings.selectedTagFilter == null ||
                     item.tags.any { it.equals(settings.selectedTagFilter, ignoreCase = true) }
 
-            val matchesQuery = if (settings.searchQuery.isBlank()) {
+            val matchesQuery = if (query.isEmpty()) {
                 true
             } else {
-                val q = settings.searchQuery.trim().lowercase()
-                item.title.lowercase().contains(q) ||
-                        item.locationName.lowercase().contains(q) ||
-                        item.notes.lowercase().contains(q) ||
-                        item.tags.any { it.lowercase().contains(q) }
+                item.title.contains(query, ignoreCase = true) ||
+                        item.locationName.contains(query, ignoreCase = true) ||
+                        item.notes.contains(query, ignoreCase = true) ||
+                        item.tags.any { it.contains(query, ignoreCase = true) }
             }
 
             matchesType && matchesLocation && matchesTag && matchesQuery
         }
 
-        // Group by Date for Timeline
         val dateGroups = filtered
             .groupBy { item -> DateTimeUtils.formatTimelineHeader(item.dateEpochMillis) }
             .map { (header, items) ->
@@ -121,7 +185,60 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 )
             }
 
-        // Group by Location for Places View
+        DerivedContent(
+            library = library,
+            filteredMedia = filtered,
+            dateGroups = dateGroups,
+            selectedAlbum = settings.selectedAlbumId?.let { id ->
+                library.albums.find { it.id == id }
+            }
+        )
+    }.flowOn(Dispatchers.Default)
+
+    val uiState: StateFlow<GalleryUiState> = combine(
+        derivedContent,
+        _settings
+    ) { content, settings ->
+        val library = content.library
+        GalleryUiState(
+            viewMode = settings.viewMode,
+            typeFilter = settings.typeFilter,
+            sortOrder = settings.sortOrder,
+            gridColumns = settings.gridColumns,
+            searchQuery = settings.searchQuery,
+            selectedLocationFilter = settings.selectedLocationFilter,
+            selectedTagFilter = settings.selectedTagFilter,
+            allMedia = library.allMedia,
+            filteredMedia = content.filteredMedia,
+            dateGroups = content.dateGroups,
+            locationGroups = library.locationGroups,
+            albums = library.albums,
+            selectedAlbum = content.selectedAlbum,
+            availableLocations = library.availableLocations,
+            availableTags = library.availableTags,
+            activeItem = settings.activeItem?.let { library.mediaById[it.id] ?: it },
+            showAddDialog = settings.showAddDialog,
+            showSettingsDialog = settings.showSettingsDialog,
+            showCreateAlbumDialog = settings.showCreateAlbumDialog,
+            showVideoDurationBadge = settings.showVideoDurationBadge,
+            themeMode = settings.themeMode,
+            editingItem = settings.editingItem,
+            isSearching = settings.isSearching,
+            isAnalyzingTags = settings.isAnalyzingTags,
+            aiTaggingNotice = settings.aiTaggingNotice,
+            hasMediaPermission = settings.hasMediaPermission,
+            isLoadingMedia = settings.isLoadingMedia,
+            permissionRequested = settings.permissionRequested,
+            selectedItemIds = settings.selectedItemIds,
+            showCameraScreen = settings.showCameraScreen
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = GalleryUiState()
+    )
+
+    private fun buildLibraryIndex(allMedia: List<MediaItem>): LibraryIndex {
         val locationGroups = allMedia
             .groupBy { it.locationName.ifBlank { "Unspecified Location" } }
             .map { (locName, items) ->
@@ -188,9 +305,6 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             .sortedByDescending { it.items.size }
 
         val allAlbums = smartAlbums + folderAlbums
-        val selectedAlbum = settings.selectedAlbumId?.let { id ->
-            allAlbums.find { it.id == id }
-        }
 
         val uniqueLocations = allMedia
             .map { it.locationName }
@@ -204,48 +318,15 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             .distinct()
             .sorted()
 
-        // Keep activeItem synced with latest item in database
-        val syncedActiveItem = settings.activeItem?.let { active ->
-            allMedia.find { it.id == active.id } ?: active
-        }
-
-        GalleryUiState(
-            viewMode = settings.viewMode,
-            typeFilter = settings.typeFilter,
-            sortOrder = settings.sortOrder,
-            gridColumns = settings.gridColumns,
-            searchQuery = settings.searchQuery,
-            selectedLocationFilter = settings.selectedLocationFilter,
-            selectedTagFilter = settings.selectedTagFilter,
+        return LibraryIndex(
             allMedia = allMedia,
-            filteredMedia = filtered,
-            dateGroups = dateGroups,
+            mediaById = allMedia.associateBy { it.id },
             locationGroups = locationGroups,
             albums = allAlbums,
-            selectedAlbum = selectedAlbum,
             availableLocations = uniqueLocations,
-            availableTags = uniqueTags,
-            activeItem = syncedActiveItem,
-            showAddDialog = settings.showAddDialog,
-            showSettingsDialog = settings.showSettingsDialog,
-            showCreateAlbumDialog = settings.showCreateAlbumDialog,
-            showVideoDurationBadge = settings.showVideoDurationBadge,
-            themeMode = settings.themeMode,
-            editingItem = settings.editingItem,
-            isSearching = settings.isSearching,
-            isAnalyzingTags = settings.isAnalyzingTags,
-            aiTaggingNotice = settings.aiTaggingNotice,
-            hasMediaPermission = settings.hasMediaPermission,
-            isLoadingMedia = settings.isLoadingMedia,
-            permissionRequested = settings.permissionRequested,
-            selectedItemIds = settings.selectedItemIds,
-            showCameraScreen = settings.showCameraScreen
+            availableTags = uniqueTags
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = GalleryUiState()
-    )
+    }
 
     fun setGridColumns(columns: Int) {
         val clamped = columns.coerceIn(2, 5)

@@ -225,7 +225,8 @@ fun MediaDetailViewer(
 
     // Keep UI progress and timer updated while video is playing
     LaunchedEffect(exoPlayer, isPlaying, isScrubbing) {
-        if (exoPlayer != null) {
+        // Do not wake Compose ten times per second while a video is paused.
+        if (exoPlayer != null && isPlaying) {
             while (true) {
                 if (!isScrubbing && exoPlayer.duration > 0) {
                     val currentMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -234,7 +235,7 @@ fun MediaDetailViewer(
                     currentPositionSeconds = (currentMs / 1000).toInt()
                     totalDurationSeconds = (durMs / 1000).toInt()
                 }
-                delay(100)
+                delay(250)
             }
         }
     }

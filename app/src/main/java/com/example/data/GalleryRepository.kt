@@ -16,14 +16,28 @@ class GalleryRepository(private val mediaDao: MediaDao) {
         }
     }
 
-    suspend fun syncDeviceMedia(scannedItems: List<MediaItem>) {
+    suspend fun syncDeviceMedia(scanResult: DeviceMediaScanResult) {
         withContext(Dispatchers.IO) {
             val existing = mediaDao.getAllMediaList()
             val existingUriSet = existing.map { it.uriString }.toSet()
-            val newItems = scannedItems.filter { it.uriString !in existingUriSet }
-            if (newItems.isNotEmpty()) {
-                mediaDao.insertAll(newItems)
-            }
+            val scannedUriSet = scanResult.items.map { it.uriString }.toSet()
+            val newItems = scanResult.items.filter { it.uriString !in existingUriSet }
+            val staleIds = existing.asSequence()
+                .filter { it.type in scanResult.fullyScannedTypes }
+                .filter { it.isDeviceMediaStoreItem() }
+                .filter { it.uriString !in scannedUriSet }
+                .map { it.id }
+                .toList()
+
+            // One Room transaction means one coherent UI update for additions/removals.
+            mediaDao.applyDeviceMediaSync(newItems, staleIds)
+        }
+    }
+
+    private fun MediaItem.isDeviceMediaStoreItem(): Boolean {
+        return when (type) {
+            MediaType.PHOTO -> uriString.startsWith("content://media/external/images/media/")
+            MediaType.VIDEO -> uriString.startsWith("content://media/external/video/media/")
         }
     }
 

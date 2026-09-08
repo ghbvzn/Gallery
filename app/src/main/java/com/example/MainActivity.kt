@@ -30,7 +30,8 @@ class MainActivity : ComponentActivity() {
         }
         .memoryCache {
             MemoryCache.Builder(this)
-                .maxSizePercent(0.35)
+                // Leave enough heap for Compose and video playback on lower-memory devices.
+                .maxSizePercent(0.20)
                 .strongReferencesEnabled(true)
                 .weakReferencesEnabled(true)
                 .build()

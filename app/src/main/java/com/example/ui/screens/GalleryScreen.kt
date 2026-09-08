@@ -55,7 +55,6 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PermMedia
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -71,8 +70,6 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -623,7 +620,8 @@ fun GalleryScreen(
         },
         bottomBar = {
             if (!uiState.isSelectionMode) {
-                // Material 3 Navigation Bar for View Modes: By Date (Timeline), By Location (Places), All (Grid)
+                // Keep this bar limited to destinations. Camera remains available from
+                // Add Media, which gives each navigation item a comfortable tap width.
                 NavigationBar(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -646,50 +644,25 @@ fun GalleryScreen(
                         selected = uiState.viewMode == GalleryViewMode.ALBUMS,
                         onClick = { viewModel.selectViewMode(GalleryViewMode.ALBUMS) },
                         icon = {
-                            BadgedBox(badge = {
-                                if (uiState.albums.isNotEmpty()) {
-                                    Badge { Text("${uiState.albums.size}") }
-                                }
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.CollectionsBookmark,
-                                    contentDescription = "Albums"
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.CollectionsBookmark,
+                                contentDescription = "Albums"
+                            )
                         },
                         label = { Text("Albums") },
                         modifier = Modifier.testTag("nav_item_albums")
                     )
 
                     NavigationBarItem(
-                        selected = false,
-                        onClick = { viewModel.openCamera() },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.PhotoCamera,
-                                contentDescription = "Camera"
-                            )
-                        },
-                        label = { Text("Camera") },
-                        modifier = Modifier.testTag("nav_item_camera")
-                    )
-
-                    NavigationBarItem(
                         selected = uiState.viewMode == GalleryViewMode.PLACES,
                         onClick = { viewModel.selectViewMode(GalleryViewMode.PLACES) },
                         icon = {
-                            BadgedBox(badge = {
-                                if (uiState.availableLocations.isNotEmpty()) {
-                                    Badge { Text("${uiState.availableLocations.size}") }
-                                }
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.LocationOn,
-                                    contentDescription = "Places by Location"
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = "Places by Location"
+                            )
                         },
-                        label = { Text("By Location") },
+                        label = { Text("Places") },
                         modifier = Modifier.testTag("nav_item_places")
                     )
 

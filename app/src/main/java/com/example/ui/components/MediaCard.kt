@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.size.Precision
 import com.example.data.MediaItem
 import com.example.data.MediaType
 import com.example.ui.theme.RoseFavorite
@@ -83,6 +84,10 @@ fun MediaCard(
             .diskCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
             .allowHardware(true)
+            // Grid cells never need the full camera resolution. Bounding decode size
+            // prevents large bitmaps from causing GC pauses while quickly scrolling.
+            .size(512)
+            .precision(Precision.INEXACT)
             .crossfade(false)
             .build()
     }

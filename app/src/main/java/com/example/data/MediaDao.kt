@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -36,6 +37,12 @@ interface MediaDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<MediaItem>)
+
+    @Transaction
+    suspend fun applyDeviceMediaSync(newItems: List<MediaItem>, staleIds: List<Long>) {
+        if (newItems.isNotEmpty()) insertAll(newItems)
+        if (staleIds.isNotEmpty()) deleteByIds(staleIds)
+    }
 
     @Update
     suspend fun update(item: MediaItem)
