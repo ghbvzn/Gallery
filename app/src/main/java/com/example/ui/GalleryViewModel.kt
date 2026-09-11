@@ -20,7 +20,6 @@ import com.example.data.GalleryDatabase
 import com.example.data.GalleryRepository
 import com.example.data.MediaItem
 import com.example.data.MediaType
-import com.example.data.ai.MediaAnalyzer
 import com.example.ui.util.DateTimeUtils
 import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.Dispatchers
@@ -57,16 +56,14 @@ data class ViewSettings(
     val showAddDialog: Boolean = false,
     val editingItem: MediaItem? = null,
     val isSearching: Boolean = false,
-    val isAnalyzingTags: Boolean = false,
-    val aiTaggingNotice: String? = null,
-    val remoteAiEnabled: Boolean = false,
     val hasMediaPermission: Boolean = false,
     val isLoadingMedia: Boolean = false,
     val permissionRequested: Boolean = false,
     val selectedItemIds: Set<Long> = emptySet(),
     val showCameraScreen: Boolean = false,
     val pendingTrashItemIds: Set<Long> = emptySet(),
-    val pendingPermanentDeleteItemIds: Set<Long> = emptySet()
+    val pendingPermanentDeleteItemIds: Set<Long> = emptySet(),
+    val pendingRestoreItemIds: Set<Long> = emptySet()
 )
 
 private data class ContentSettings(
@@ -98,7 +95,6 @@ private data class DerivedContent(
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: GalleryRepository
-    private val mediaAnalyzer = MediaAnalyzer(application)
     private val deviceMediaScanner = DeviceMediaScanner(application)
     private val _settings = MutableStateFlow(ViewSettings())
     private var observerRefreshJob: Job? = null
@@ -278,16 +274,14 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             themeMode = settings.themeMode,
             editingItem = settings.editingItem,
             isSearching = settings.isSearching,
-            isAnalyzingTags = settings.isAnalyzingTags,
-            aiTaggingNotice = settings.aiTaggingNotice,
-            remoteAiEnabled = settings.remoteAiEnabled,
             hasMediaPermission = settings.hasMediaPermission,
             isLoadingMedia = settings.isLoadingMedia,
             permissionRequested = settings.permissionRequested,
             selectedItemIds = settings.selectedItemIds,
             showCameraScreen = settings.showCameraScreen,
             pendingTrashItemIds = settings.pendingTrashItemIds,
-            pendingPermanentDeleteItemIds = settings.pendingPermanentDeleteItemIds
+            pendingPermanentDeleteItemIds = settings.pendingPermanentDeleteItemIds,
+            pendingRestoreItemIds = settings.pendingRestoreItemIds
         )
     }.stateIn(
         scope = viewModelScope,
@@ -487,7 +481,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun closeDetailViewer() {
-        _settings.update { it.copy(activeItem = null, isAnalyzingTags = false, aiTaggingNotice = null) }
+        _settings.update { it.copy(activeItem = null) }
     }
 
     fun nextItem() {
@@ -495,7 +489,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         val currentList = uiState.value.filteredMedia
         val currentIndex = currentList.indexOfFirst { it.id == current.id }
         if (currentIndex in 0 until currentList.size - 1) {
-            _settings.update { it.copy(activeItem = currentList[currentIndex + 1], isAnalyzingTags = false, aiTaggingNotice = null) }
+            _settings.update { it.copy(activeItem = currentList[currentIndex + 1]) }
         }
     }
 
@@ -504,7 +498,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         val currentList = uiState.value.filteredMedia
         val currentIndex = currentList.indexOfFirst { it.id == current.id }
         if (currentIndex > 0) {
-            _settings.update { it.copy(activeItem = currentList[currentIndex - 1], isAnalyzingTags = false, aiTaggingNotice = null) }
+            _settings.update { it.copy(activeItem = currentList[currentIndex - 1]) }
         }
     }
 
@@ -629,82 +623,6 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * AI-powered analysis to detect content and suggest relevant tags.
-     */
-    fun analyzeMediaForTags(item: MediaItem) {
-        viewModelScope.launch {
-            val remoteEnabled = _settings.value.remoteAiEnabled
-            _settings.update {
-                it.copy(
-                    isAnalyzingTags = true,
-                    aiTaggingNotice = if (remoteEnabled)
-                        "Gemini is analyzing a reduced media preview..."
-                    else
-                        "Analyzing media locally..."
-                )
-            }
-            try {
-                val result = mediaAnalyzer.analyzeMedia(item, allowRemoteAnalysis = remoteEnabled)
-                val suggestions = result.getOrNull() ?: emptyList()
-                // Filter out any tags the item already has
-                val newSuggestions = (item.suggestedTags + suggestions)
-                    .distinct()
-                    .filter { sug -> item.tags.none { it.equals(sug, ignoreCase = true) } }
-
-                repository.updateSuggestedTags(item.id, newSuggestions)
-
-                _settings.update {
-                    val updatedItem = if (it.activeItem?.id == item.id) {
-                        it.activeItem.copy(suggestedTags = newSuggestions)
-                    } else it.activeItem
-                    it.copy(
-                        activeItem = updatedItem,
-                        isAnalyzingTags = false,
-                        aiTaggingNotice = if (newSuggestions.isNotEmpty()) "Found ${newSuggestions.size} AI tag suggestions!" else "No additional tags suggested"
-                    )
-                }
-            } catch (e: Exception) {
-                _settings.update { it.copy(isAnalyzingTags = false, aiTaggingNotice = "Analysis failed: ${e.localizedMessage}") }
-            }
-        }
-    }
-
-    /**
-     * Accept a suggested tag: moves it to active tags and removes from suggestions.
-     */
-    fun acceptTag(itemId: Long, tag: String) {
-        viewModelScope.launch {
-            val item = uiState.value.allMedia.find { it.id == itemId } ?: return@launch
-            val updatedTags = (item.tags + tag).distinct()
-            val updatedSuggestions = item.suggestedTags.filterNot { it.equals(tag, ignoreCase = true) }
-            repository.updateTagsAndSuggestions(itemId, updatedTags, updatedSuggestions)
-
-            if (_settings.value.activeItem?.id == itemId) {
-                _settings.update {
-                    it.copy(activeItem = it.activeItem?.copy(tags = updatedTags, suggestedTags = updatedSuggestions))
-                }
-            }
-        }
-    }
-
-    /**
-     * Reject a suggested tag: removes it from suggestions.
-     */
-    fun rejectTag(itemId: Long, tag: String) {
-        viewModelScope.launch {
-            val item = uiState.value.allMedia.find { it.id == itemId } ?: return@launch
-            val updatedSuggestions = item.suggestedTags.filterNot { it.equals(tag, ignoreCase = true) }
-            repository.updateSuggestedTags(itemId, updatedSuggestions)
-
-            if (_settings.value.activeItem?.id == itemId) {
-                _settings.update {
-                    it.copy(activeItem = it.activeItem?.copy(suggestedTags = updatedSuggestions))
-                }
-            }
-        }
-    }
-
-    /**
      * Add a custom tag entered by the user.
      */
     fun addCustomTag(itemId: Long, customTag: String) {
@@ -716,12 +634,11 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             if (item.tags.any { it.equals(trimmed, ignoreCase = true) }) return@launch
 
             val updatedTags = item.tags + trimmed
-            val updatedSuggestions = item.suggestedTags.filterNot { it.equals(trimmed, ignoreCase = true) }
-            repository.updateTagsAndSuggestions(itemId, updatedTags, updatedSuggestions)
+            repository.updateTags(itemId, updatedTags)
 
             if (_settings.value.activeItem?.id == itemId) {
                 _settings.update {
-                    it.copy(activeItem = it.activeItem?.copy(tags = updatedTags, suggestedTags = updatedSuggestions))
+                    it.copy(activeItem = it.activeItem?.copy(tags = updatedTags))
                 }
             }
         }
@@ -741,22 +658,6 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                     it.copy(activeItem = it.activeItem?.copy(tags = updatedTags))
                 }
             }
-        }
-    }
-
-    fun clearAiNotice() {
-        _settings.update { it.copy(aiTaggingNotice = null) }
-    }
-
-    fun setRemoteAiEnabled(enabled: Boolean) {
-        _settings.update {
-            it.copy(
-                remoteAiEnabled = enabled,
-                aiTaggingNotice = if (enabled)
-                    "Gemini cloud tagging enabled for media you manually analyze"
-                else
-                    "Gemini cloud tagging disabled; analysis stays on device"
-            )
         }
     }
 
@@ -801,12 +702,60 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         requestDelete(setOf(id))
     }
 
+    fun restoreItem(id: Long) {
+        requestRestore(setOf(id))
+    }
+
+    fun restoreSelectedItems() {
+        requestRestore(_settings.value.selectedItemIds)
+    }
+
+    private fun requestRestore(ids: Set<Long>) {
+        val settings = _settings.value
+        if (ids.isEmpty() || settings.pendingRestoreItemIds.isNotEmpty()) return
+        val items = uiState.value.trashedMedia.filter { it.id in ids }
+        if (items.isEmpty()) return
+
+        val mediaStoreIds = items.filter { it.isMediaStoreItem() }.map { it.id }.toSet()
+        val appOnlyIds = items.filterNot { it.isMediaStoreItem() }.map { it.id }.toSet()
+        viewModelScope.launch {
+            restoreDatabaseItems(appOnlyIds)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && mediaStoreIds.isNotEmpty()) {
+                _settings.update { it.copy(pendingRestoreItemIds = mediaStoreIds) }
+            } else {
+                restoreDatabaseItems(mediaStoreIds)
+            }
+        }
+    }
+
+    fun onRestoreRequestResult(approved: Boolean) {
+        val pendingIds = _settings.value.pendingRestoreItemIds
+        _settings.update { it.copy(pendingRestoreItemIds = emptySet()) }
+        if (!approved || pendingIds.isEmpty()) return
+        viewModelScope.launch {
+            restoreDatabaseItems(pendingIds)
+            refreshDeviceMedia()
+        }
+    }
+
+    private suspend fun restoreDatabaseItems(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        repository.setTrashedBatch(ids.toList(), false)
+        _settings.update { current ->
+            current.copy(
+                selectedItemIds = current.selectedItemIds - ids,
+                activeItem = if (current.activeItem?.id in ids) null else current.activeItem
+            )
+        }
+    }
+
     private fun requestDelete(ids: Set<Long>) {
         val settings = _settings.value
         if (
             ids.isEmpty() ||
             settings.pendingTrashItemIds.isNotEmpty() ||
-            settings.pendingPermanentDeleteItemIds.isNotEmpty()
+            settings.pendingPermanentDeleteItemIds.isNotEmpty() ||
+            settings.pendingRestoreItemIds.isNotEmpty()
         ) return
         val state = uiState.value
         val items = (state.allMedia + state.trashedMedia).filter { it.id in ids }
@@ -929,7 +878,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         return uriString.startsWith("content://media/")
     }
 
-    fun onPermissionResult(granted: Boolean) {
+    fun onPermissionResult(granted: Boolean, forceRefresh: Boolean = false) {
         _settings.update {
             it.copy(
                 hasMediaPermission = granted,
@@ -937,7 +886,11 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             )
         }
         if (granted) {
-            refreshDeviceMedia()
+            viewModelScope.launch {
+                // Room immediately serves the cached library. A full MediaStore scan is
+                // only needed for a first run; the ContentObserver handles later changes.
+                if (forceRefresh || repository.getMediaCount() == 0) refreshDeviceMedia()
+            }
         }
     }
 

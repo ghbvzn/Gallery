@@ -330,7 +330,7 @@ fun AddMediaDialog(
                 // TAGS SECTION
                 Column {
                     Text(
-                        text = "Tags (AI will also suggest tags):",
+                        text = "Tags:",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold
                     )

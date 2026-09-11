@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
@@ -253,8 +254,13 @@ fun GalleryScreen(
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) {
-        viewModel.onPermissionResult(checkPermissionsGranted())
+    ) { results ->
+        val granted = checkPermissionsGranted()
+        val locationOnlyRequest = results.size == 1 &&
+            results[Manifest.permission.ACCESS_MEDIA_LOCATION] == true
+        // A newly granted location-only request needs one scan because GPS metadata
+        // was unavailable before. Initial permission setup still performs one scan.
+        viewModel.onPermissionResult(granted, forceRefresh = locationOnlyRequest)
     }
 
     val trashLauncher = rememberLauncherForActivityResult(
@@ -267,6 +273,12 @@ fun GalleryScreen(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         viewModel.onPermanentDeleteRequestResult(result.resultCode == Activity.RESULT_OK)
+    }
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        viewModel.onRestoreRequestResult(result.resultCode == Activity.RESULT_OK)
     }
 
     LaunchedEffect(uiState.pendingTrashItemIds) {
@@ -317,6 +329,29 @@ fun GalleryScreen(
         }
     }
 
+    LaunchedEffect(uiState.pendingRestoreItemIds) {
+        val pendingIds = uiState.pendingRestoreItemIds
+        if (pendingIds.isEmpty()) return@LaunchedEffect
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            viewModel.onRestoreRequestResult(false)
+            return@LaunchedEffect
+        }
+        val uris = uiState.trashedMedia.asSequence()
+            .filter { it.id in pendingIds }
+            .map { Uri.parse(it.uriString) }
+            .toList()
+        if (uris.isEmpty()) {
+            viewModel.onRestoreRequestResult(false)
+            return@LaunchedEffect
+        }
+        try {
+            val request = MediaStore.createTrashRequest(context.contentResolver, uris, false)
+            restoreLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+        } catch (_: Exception) {
+            viewModel.onRestoreRequestResult(false)
+        }
+    }
+
     // Ask for media permissions early on
     LaunchedEffect(Unit) {
         if (checkPermissionsGranted()) {
@@ -362,6 +397,7 @@ fun GalleryScreen(
                                 .filter { it.id in uiState.selectedItemIds }
                         }
                         val anyNotFav = selectedItems.any { !it.isFavorite }
+                        val selectingFromBin = selectedItems.isNotEmpty() && selectedItems.all { it.isTrashed }
                         TopAppBar(
                             navigationIcon = {
                                 IconButton(
@@ -417,22 +453,33 @@ fun GalleryScreen(
                                         expanded = selectionMenuExpanded,
                                         onDismissRequest = { selectionMenuExpanded = false }
                                     ) {
-                                        DropdownMenuItem(
-                                            text = { Text(if (anyNotFav) "Favorite selected" else "Unfavorite selected") },
-                                            leadingIcon = { Icon(Icons.Default.Favorite, contentDescription = null) },
-                                            onClick = {
-                                                selectionMenuExpanded = false
-                                                viewModel.toggleFavoriteSelected()
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Share selected") },
-                                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                                            onClick = {
-                                                selectionMenuExpanded = false
-                                                shareMediaItems(context, selectedItems)
-                                            }
-                                        )
+                                        if (selectingFromBin) {
+                                            DropdownMenuItem(
+                                                text = { Text("Restore selected") },
+                                                leadingIcon = { Icon(Icons.Default.RestoreFromTrash, contentDescription = null) },
+                                                onClick = {
+                                                    selectionMenuExpanded = false
+                                                    viewModel.restoreSelectedItems()
+                                                }
+                                            )
+                                        } else {
+                                            DropdownMenuItem(
+                                                text = { Text(if (anyNotFav) "Favorite selected" else "Unfavorite selected") },
+                                                leadingIcon = { Icon(Icons.Default.Favorite, contentDescription = null) },
+                                                onClick = {
+                                                    selectionMenuExpanded = false
+                                                    viewModel.toggleFavoriteSelected()
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Share selected") },
+                                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                                                onClick = {
+                                                    selectionMenuExpanded = false
+                                                    shareMediaItems(context, selectedItems)
+                                                }
+                                            )
+                                        }
                                         DropdownMenuItem(
                                             text = { Text("Delete selected", color = MaterialTheme.colorScheme.error) },
                                             leadingIcon = {
@@ -446,21 +493,30 @@ fun GalleryScreen(
                                     }
                                 }
                             } else {
-                                IconButton(
-                                    onClick = { viewModel.toggleFavoriteSelected() },
-                                    modifier = Modifier.testTag("batch_favorite_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Favorite,
-                                        contentDescription = if (anyNotFav) "Favorite selected" else "Unfavorite selected",
-                                        tint = if (anyNotFav) MaterialTheme.colorScheme.onSurface else RoseFavorite
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { shareMediaItems(context, selectedItems) },
-                                    modifier = Modifier.testTag("batch_share_button")
-                                ) {
-                                    Icon(Icons.Default.Share, contentDescription = "Share selected")
+                                if (selectingFromBin) {
+                                    IconButton(
+                                        onClick = { viewModel.restoreSelectedItems() },
+                                        modifier = Modifier.testTag("batch_restore_button")
+                                    ) {
+                                        Icon(Icons.Default.RestoreFromTrash, contentDescription = "Restore selected")
+                                    }
+                                } else {
+                                    IconButton(
+                                        onClick = { viewModel.toggleFavoriteSelected() },
+                                        modifier = Modifier.testTag("batch_favorite_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Favorite,
+                                            contentDescription = if (anyNotFav) "Favorite selected" else "Unfavorite selected",
+                                            tint = if (anyNotFav) MaterialTheme.colorScheme.onSurface else RoseFavorite
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { shareMediaItems(context, selectedItems) },
+                                        modifier = Modifier.testTag("batch_share_button")
+                                    ) {
+                                        Icon(Icons.Default.Share, contentDescription = "Share selected")
+                                    }
                                 }
                                 IconButton(
                                     onClick = { showBatchDeleteDialog = true },
@@ -989,17 +1045,13 @@ fun GalleryScreen(
     uiState.activeItem?.let { active ->
         MediaDetailViewer(
             item = active,
-            isAnalyzingTags = uiState.isAnalyzingTags,
-            aiTaggingNotice = uiState.aiTaggingNotice,
             onClose = { viewModel.closeDetailViewer() },
             onToggleFavorite = { viewModel.toggleFavorite(it) },
             onEditMetadata = { viewModel.startEditing(it) },
             onDeleteItem = { viewModel.deleteItem(it) },
+            onRestoreItem = { viewModel.restoreItem(it) },
             onPrevious = { viewModel.previousItem() },
             onNext = { viewModel.nextItem() },
-            onAnalyzeMedia = { viewModel.analyzeMediaForTags(it) },
-            onAcceptTag = { itemId, tag -> viewModel.acceptTag(itemId, tag) },
-            onRejectTag = { itemId, tag -> viewModel.rejectTag(itemId, tag) },
             onAddCustomTag = { itemId, tag -> viewModel.addCustomTag(itemId, tag) },
             onRemoveTag = { itemId, tag -> viewModel.removeTag(itemId, tag) }
         )
@@ -1039,8 +1091,7 @@ fun GalleryScreen(
             onToggleVideoBadges = { viewModel.setShowVideoDurationBadge(it) },
             onSetThemeMode = { viewModel.setThemeMode(it) },
             onRefreshMedia = { viewModel.refreshDeviceMedia() },
-            onRequestPermission = { permissionLauncher.launch(mediaPermissions) },
-            onToggleRemoteAi = { viewModel.setRemoteAiEnabled(it) }
+            onRequestPermission = { permissionLauncher.launch(mediaPermissions) }
         )
     }
 

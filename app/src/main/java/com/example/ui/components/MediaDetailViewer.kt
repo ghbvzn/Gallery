@@ -33,8 +33,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
@@ -49,6 +47,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material.icons.outlined.CalendarToday
@@ -57,8 +56,6 @@ import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -128,17 +125,13 @@ import kotlinx.coroutines.delay
 @Composable
 fun MediaDetailViewer(
     item: MediaItem,
-    isAnalyzingTags: Boolean,
-    aiTaggingNotice: String?,
     onClose: () -> Unit,
     onToggleFavorite: (MediaItem) -> Unit,
     onEditMetadata: (MediaItem) -> Unit,
     onDeleteItem: (Long) -> Unit,
+    onRestoreItem: (Long) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    onAnalyzeMedia: (MediaItem) -> Unit,
-    onAcceptTag: (itemId: Long, tag: String) -> Unit,
-    onRejectTag: (itemId: Long, tag: String) -> Unit,
     onAddCustomTag: (itemId: Long, customTag: String) -> Unit,
     onRemoveTag: (itemId: Long, tag: String) -> Unit
 ) {
@@ -727,20 +720,14 @@ fun MediaDetailViewer(
                             )
                         }
 
-                        IconButton(
-                            onClick = { onAnalyzeMedia(item) },
-                            modifier = Modifier.testTag("ai_analyze_button")
-                        ) {
-                            if (isAnalyzingTags) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
+                        if (item.isTrashed) {
+                            IconButton(
+                                onClick = { onRestoreItem(item.id) },
+                                modifier = Modifier.testTag("restore_media_button")
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "Analyze Media with AI",
+                                    imageVector = Icons.Default.RestoreFromTrash,
+                                    contentDescription = "Restore from Bin",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -760,7 +747,7 @@ fun MediaDetailViewer(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Info,
-                                contentDescription = "Metadata Info & AI Tags",
+                                contentDescription = "Media details and tags",
                                 tint = if (showInfoSheet) MaterialTheme.colorScheme.primary else Color.White
                             )
                         }
@@ -795,35 +782,6 @@ fun MediaDetailViewer(
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                         .navigationBarsPadding()
                 ) {
-                    if (aiTaggingNotice != null) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = aiTaggingNotice,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-
                     // Active tags preview
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -890,7 +848,7 @@ fun MediaDetailViewer(
                             modifier = Modifier.testTag("manage_tags_button")
                         ) {
                             Text(
-                                text = if (item.suggestedTags.isNotEmpty()) "Review AI Tags (${item.suggestedTags.size})" else "Manage Tags",
+                                text = "Manage Tags",
                                 color = MaterialTheme.colorScheme.primary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -898,47 +856,10 @@ fun MediaDetailViewer(
                         }
                     }
 
-                    // If there are AI suggestions waiting, display a quick banner
-                    if (item.suggestedTags.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(top = 2.dp)
-                        ) {
-                            Text(
-                                text = "Suggested: ",
-                                color = MaterialTheme.colorScheme.secondary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                item.suggestedTags.take(2).forEach { sug ->
-                                    AssistChip(
-                                        onClick = { onAcceptTag(item.id, sug) },
-                                        label = { Text(sug, fontSize = 10.sp) },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.Add,
-                                                contentDescription = "Add",
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                        },
-                                        colors = AssistChipDefaults.assistChipColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                        ),
-                                        modifier = Modifier.height(26.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
                 }
             }
 
-            // Info Details & AI Tagging Bottom Sheet Overlay
+            // Info details and manual tags bottom sheet overlay
             AnimatedVisibility(
                 visible = showInfoSheet,
                 enter = fadeIn(),
@@ -983,138 +904,7 @@ fun MediaDetailViewer(
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                        // AI TAGGING SECTION
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "AI Content Tagging",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-
-                            Button(
-                                onClick = { onAnalyzeMedia(item) },
-                                enabled = !isAnalyzingTags,
-                                modifier = Modifier.testTag("analyze_content_button"),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            ) {
-                                if (isAnalyzingTags) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        color = MaterialTheme.colorScheme.primary,
-                                        strokeWidth = 2.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Analyzing...", fontSize = 12.sp)
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Detect Tags", fontSize = 12.sp)
-                                }
-                            }
-                        }
-
-                        // AI Suggested Tags Section
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "SUGGESTED TAGS",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
-                        if (item.suggestedTags.isEmpty()) {
-                            Text(
-                                text = "No pending suggestions. Tap \"Detect Tags\" to let AI inspect image and video context.",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 6.dp)
-                            )
-                        } else {
-                            Text(
-                                text = "Tap ✓ to accept or ✕ to reject:",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
-                            )
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                item.suggestedTags.forEach { suggested ->
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant,
-                                        modifier = Modifier.testTag("suggested_tag_$suggested")
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
-                                        ) {
-                                            Text(
-                                                text = suggested,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            // Accept button
-                                            IconButton(
-                                                onClick = { onAcceptTag(item.id, suggested) },
-                                                modifier = Modifier
-                                                    .size(24.dp)
-                                                    .testTag("accept_tag_$suggested")
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Check,
-                                                    contentDescription = "Accept tag $suggested",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                            // Reject button
-                                            IconButton(
-                                                onClick = { onRejectTag(item.id, suggested) },
-                                                modifier = Modifier
-                                                    .size(24.dp)
-                                                    .testTag("reject_tag_$suggested")
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Close,
-                                                    contentDescription = "Reject tag $suggested",
-                                                    tint = MaterialTheme.colorScheme.outline,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Current Accepted Tags Section
-                        Spacer(modifier = Modifier.height(14.dp))
+                        // Current manual tags section
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,

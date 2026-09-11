@@ -2,8 +2,8 @@
 
 An open-source Android gallery app built with Kotlin, Jetpack Compose, Room,
 Coil, CameraX, and Media3. It organizes photos and videos by timeline, album,
-location, and grid views, with search, favorites, tagging, an in-app camera,
-and optional Gemini-powered tag suggestions.
+location, and grid views, with search, favorites, private on-device tagging,
+an in-app camera, and a restorable media Bin.
 
 ## Requirements
 
@@ -14,12 +14,7 @@ and optional Gemini-powered tag suggestions.
 ## Build
 
 1. Clone this repository and open it in Android Studio.
-2. Copy `.env.example` to `.env`.
-3. Replace `MY_GEMINI_API_KEY` if you want optional Gemini tag suggestions.
-   Keep `.env` private; it is ignored by Git. Cloud tagging is off by default
-   and must also be enabled in Settings. Only media explicitly submitted with
-   the Detect Tags action is sent for analysis.
-4. Run the `app` configuration, or build from a terminal:
+2. Run the `app` configuration, or build from a terminal:
 
    ```shell
    ./gradlew assembleDebug
@@ -31,10 +26,10 @@ to be committed.
 
 ## Current version
 
-Version 1.12.0 (version code 25) adds a Bin smart album and a two-step deletion
-flow: removing media moves it out of normal gallery views, while deleting it
-from Bin permanently removes the backing file with Android confirmation where
-required. It also includes real GPS Places and the improved camera.
+Version 1.13.0 (version code 26) adds Restore actions for individual and selected
+items in the Bin. It removes Gemini tagging and its API-key/cloud dependencies,
+keeping manual tags entirely on-device. The app now opens its cached library
+immediately and scans only on first run, manual refresh, or device-media changes.
 
 ## License
 

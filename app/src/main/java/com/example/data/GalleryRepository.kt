@@ -72,16 +72,8 @@ class GalleryRepository(private val mediaDao: MediaDao) {
         }
     }
 
-    suspend fun updateSuggestedTags(id: Long, suggestedTags: List<String>) {
-        withContext(Dispatchers.IO) {
-            mediaDao.updateSuggestedTags(id, suggestedTags)
-        }
-    }
-
-    suspend fun updateTagsAndSuggestions(id: Long, tags: List<String>, suggestedTags: List<String>) {
-        withContext(Dispatchers.IO) {
-            mediaDao.updateTagsAndSuggestions(id, tags, suggestedTags)
-        }
+    suspend fun getMediaCount(): Int = withContext(Dispatchers.IO) {
+        mediaDao.getMediaCount()
     }
 
     suspend fun delete(id: Long) {

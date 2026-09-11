@@ -86,12 +86,6 @@ interface MediaDao {
     @Query("UPDATE media_items SET tags = :tags WHERE id = :id")
     suspend fun updateTags(id: Long, tags: List<String>)
 
-    @Query("UPDATE media_items SET suggestedTags = :suggestedTags WHERE id = :id")
-    suspend fun updateSuggestedTags(id: Long, suggestedTags: List<String>)
-
-    @Query("UPDATE media_items SET tags = :tags, suggestedTags = :suggestedTags WHERE id = :id")
-    suspend fun updateTagsAndSuggestions(id: Long, tags: List<String>, suggestedTags: List<String>)
-
     @Delete
     suspend fun delete(item: MediaItem)
 

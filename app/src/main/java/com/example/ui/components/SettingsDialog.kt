@@ -71,8 +71,7 @@ fun SettingsDialog(
     onToggleVideoBadges: (Boolean) -> Unit,
     onSetThemeMode: (String) -> Unit,
     onRefreshMedia: () -> Unit,
-    onRequestPermission: () -> Unit,
-    onToggleRemoteAi: (Boolean) -> Unit = {}
+    onRequestPermission: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -395,37 +394,10 @@ fun SettingsDialog(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Your library stays on your device. If Gemini tagging is enabled below, only the photo thumbnail or a video preview frame you choose to analyze is sent to Google's Gemini API.",
+                            text = "Your library, metadata, and manual tags stay on your device. The app does not upload photos or videos for AI analysis.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Gemini cloud tagging",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = if (uiState.remoteAiEnabled)
-                                        "Enabled for media you manually ask to analyze"
-                                    else
-                                        "Off — tag suggestions run locally",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = uiState.remoteAiEnabled,
-                                onCheckedChange = onToggleRemoteAi,
-                                modifier = Modifier.testTag("toggle_remote_ai")
-                            )
-                        }
                         HorizontalDivider(
                             modifier = Modifier.padding(vertical = 12.dp),
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
