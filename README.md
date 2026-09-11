@@ -31,10 +31,10 @@ to be committed.
 
 ## Current version
 
-Version 1.10.0 (version code 22) adds smooth pinch and slider camera zoom,
-tap-to-focus, maximum-quality JPEG capture, and the highest available photo
-resolution on each device. It also includes the responsive top bar, real system
-Trash/Delete handling, live MediaStore updates, and opt-in Gemini cloud tagging.
+Version 1.10.1 (version code 23) makes camera startup safe on devices whose
+preview is composed before a display is attached. It includes smooth pinch and
+slider zoom, tap-to-focus, maximum-quality JPEG capture, and the highest
+available photo resolution on each device.
 
 ## License
 

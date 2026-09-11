@@ -364,8 +364,12 @@ fun CameraScreen(
         AndroidView(
             factory = { previewView },
             update = { view ->
-                imageCapture.targetRotation = view.display.rotation
-                videoCapture.targetRotation = view.display.rotation
+                // A PreviewView can be composed before Android attaches it to a
+                // display. Some devices return null here during that short window.
+                view.display?.rotation?.let { rotation ->
+                    imageCapture.targetRotation = rotation
+                    videoCapture.targetRotation = rotation
+                }
             },
             modifier = Modifier
                 .fillMaxSize()
