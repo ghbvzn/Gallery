@@ -8,7 +8,7 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [MediaItem::class], version = 3, exportSchema = false)
+@Database(entities = [MediaItem::class], version = 4, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class GalleryDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao
@@ -25,6 +25,7 @@ abstract class GalleryDatabase : RoomDatabase() {
                     "gallery_database"
                 )
                     .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_3_4)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
@@ -46,6 +47,12 @@ abstract class GalleryDatabase : RoomDatabase() {
                        WHERE locationName = 'Camera'
                          AND notes LIKE '%captured with in-app camera%'"""
                 )
+            }
+        }
+
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE media_items ADD COLUMN isTrashed INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

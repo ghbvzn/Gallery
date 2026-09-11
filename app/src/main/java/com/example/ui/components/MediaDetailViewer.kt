@@ -1455,13 +1455,21 @@ fun MediaDetailViewer(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) "Move to Trash" else "Delete Media") },
+            title = {
+                Text(
+                    when {
+                        item.isTrashed -> "Delete permanently"
+                        else -> "Move to Bin"
+                    }
+                )
+            },
             text = {
                 Text(
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
-                        "Move \"${item.title}\" to the system Trash? Android will ask you to confirm."
-                    else
-                        "Permanently delete \"${item.title}\" from this device?"
+                    when {
+                        item.isTrashed -> "Permanently delete \"${item.title}\" from this device? This cannot be undone."
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> "Move \"${item.title}\" to Bin? Android will ask you to confirm."
+                        else -> "Move \"${item.title}\" to Bin? You can permanently delete it there later."
+                    }
                 )
             },
             confirmButton = {
@@ -1472,7 +1480,7 @@ fun MediaDetailViewer(
                     }
                 ) {
                     Text(
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) "Move to Trash" else "Delete",
+                        if (item.isTrashed) "Delete permanently" else "Move to Bin",
                         color = MaterialTheme.colorScheme.error
                     )
                 }

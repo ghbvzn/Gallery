@@ -19,6 +19,7 @@ data class MediaItem(
     val longitude: Double? = null,
     val durationSeconds: Int = 0,
     val isFavorite: Boolean = false,
+    val isTrashed: Boolean = false,
     val resolution: String = "",
     val notes: String = "",
     val tags: List<String> = emptyList(),

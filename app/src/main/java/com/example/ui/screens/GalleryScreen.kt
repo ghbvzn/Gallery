@@ -263,6 +263,12 @@ fun GalleryScreen(
         viewModel.onTrashRequestResult(result.resultCode == Activity.RESULT_OK)
     }
 
+    val permanentDeleteLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        viewModel.onPermanentDeleteRequestResult(result.resultCode == Activity.RESULT_OK)
+    }
+
     LaunchedEffect(uiState.pendingTrashItemIds) {
         val pendingIds = uiState.pendingTrashItemIds
         if (pendingIds.isEmpty()) return@LaunchedEffect
@@ -285,6 +291,29 @@ fun GalleryScreen(
             trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
         } catch (_: Exception) {
             viewModel.onTrashRequestResult(false)
+        }
+    }
+
+    LaunchedEffect(uiState.pendingPermanentDeleteItemIds) {
+        val pendingIds = uiState.pendingPermanentDeleteItemIds
+        if (pendingIds.isEmpty()) return@LaunchedEffect
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            viewModel.onPermanentDeleteRequestResult(false)
+            return@LaunchedEffect
+        }
+        val uris = uiState.trashedMedia.asSequence()
+            .filter { it.id in pendingIds }
+            .map { Uri.parse(it.uriString) }
+            .toList()
+        if (uris.isEmpty()) {
+            viewModel.onPermanentDeleteRequestResult(false)
+            return@LaunchedEffect
+        }
+        try {
+            val request = MediaStore.createDeleteRequest(context.contentResolver, uris)
+            permanentDeleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+        } catch (_: Exception) {
+            viewModel.onPermanentDeleteRequestResult(false)
         }
     }
 
@@ -324,8 +353,13 @@ fun GalleryScreen(
                 if (uiState.isSelectionMode) {
                     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                         val compactTopBar = maxWidth < 420.dp
-                        val selectedItems = remember(uiState.selectedItemIds, uiState.allMedia) {
-                            uiState.allMedia.filter { it.id in uiState.selectedItemIds }
+                        val selectedItems = remember(
+                            uiState.selectedItemIds,
+                            uiState.allMedia,
+                            uiState.trashedMedia
+                        ) {
+                            (uiState.allMedia + uiState.trashedMedia)
+                                .filter { it.id in uiState.selectedItemIds }
                         }
                         val anyNotFav = selectedItems.any { !it.isFavorite }
                         TopAppBar(
@@ -351,8 +385,9 @@ fun GalleryScreen(
                                 )
                             },
                             actions = {
-                            val allSelected = uiState.filteredMedia.isNotEmpty() &&
-                                    uiState.filteredMedia.all { it.id in uiState.selectedItemIds }
+                            val selectableItems = uiState.selectedAlbum?.items ?: uiState.filteredMedia
+                            val allSelected = selectableItems.isNotEmpty() &&
+                                    selectableItems.all { it.id in uiState.selectedItemIds }
 
                             IconButton(
                                 onClick = {
@@ -1012,6 +1047,7 @@ fun GalleryScreen(
     // Batch Delete Confirmation Dialog
     if (showBatchDeleteDialog) {
         val count = uiState.selectedItemIds.size
+        val permanentlyDeleting = uiState.trashedMedia.any { it.id in uiState.selectedItemIds }
         AlertDialog(
             onDismissRequest = { showBatchDeleteDialog = false },
             icon = {
@@ -1022,14 +1058,20 @@ fun GalleryScreen(
                 )
             },
             title = {
-                Text("Delete $count ${if (count == 1) "item" else "items"}?")
+                Text(
+                    if (permanentlyDeleting)
+                        "Permanently delete $count ${if (count == 1) "item" else "items"}?"
+                    else
+                        "Move $count ${if (count == 1) "item" else "items"} to Bin?"
+                )
             },
             text = {
                 Text(
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
-                        "The selected ${if (count == 1) "item" else "items"} will be moved to the system Trash. Android will ask you to confirm."
-                    else
-                        "The selected ${if (count == 1) "item" else "items"} will be deleted from the device. This cannot be undone."
+                    when {
+                        permanentlyDeleting -> "This permanently deletes the selected ${if (count == 1) "item" else "items"} from the device and cannot be undone."
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> "The selected ${if (count == 1) "item" else "items"} will be moved to Bin. Android will ask you to confirm."
+                        else -> "The selected ${if (count == 1) "item" else "items"} will move to Bin and can be permanently deleted there."
+                    }
                 )
             },
             confirmButton = {
@@ -1041,7 +1083,7 @@ fun GalleryScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier.testTag("confirm_batch_delete_button")
                 ) {
-                    Text(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) "Move to Trash" else "Delete")
+                    Text(if (permanentlyDeleting) "Delete permanently" else "Move to Bin")
                 }
             },
             dismissButton = {
@@ -1368,7 +1410,7 @@ private fun AlbumsContent(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${albums.size} albums • Favorites, videos, and on-device folders",
+                            text = "${albums.size} albums • Favorites, videos, Bin, and device folders",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

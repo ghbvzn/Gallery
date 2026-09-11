@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -64,7 +65,8 @@ data class ViewSettings(
     val permissionRequested: Boolean = false,
     val selectedItemIds: Set<Long> = emptySet(),
     val showCameraScreen: Boolean = false,
-    val pendingTrashItemIds: Set<Long> = emptySet()
+    val pendingTrashItemIds: Set<Long> = emptySet(),
+    val pendingPermanentDeleteItemIds: Set<Long> = emptySet()
 )
 
 private data class ContentSettings(
@@ -78,6 +80,7 @@ private data class ContentSettings(
 
 private data class LibraryIndex(
     val allMedia: List<MediaItem>,
+    val trashedMedia: List<MediaItem>,
     val mediaById: Map<Long, MediaItem>,
     val locationGroups: List<LocationGroup>,
     val albums: List<Album>,
@@ -259,6 +262,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             selectedLocationFilter = settings.selectedLocationFilter,
             selectedTagFilter = settings.selectedTagFilter,
             allMedia = library.allMedia,
+            trashedMedia = library.trashedMedia,
             filteredMedia = content.filteredMedia,
             dateGroups = content.dateGroups,
             locationGroups = library.locationGroups,
@@ -282,7 +286,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             permissionRequested = settings.permissionRequested,
             selectedItemIds = settings.selectedItemIds,
             showCameraScreen = settings.showCameraScreen,
-            pendingTrashItemIds = settings.pendingTrashItemIds
+            pendingTrashItemIds = settings.pendingTrashItemIds,
+            pendingPermanentDeleteItemIds = settings.pendingPermanentDeleteItemIds
         )
     }.stateIn(
         scope = viewModelScope,
@@ -290,7 +295,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         initialValue = GalleryUiState()
     )
 
-    private fun buildLibraryIndex(allMedia: List<MediaItem>): LibraryIndex {
+    private fun buildLibraryIndex(storedMedia: List<MediaItem>): LibraryIndex {
+        val allMedia = storedMedia.filterNot { it.isTrashed }
+        val trashedMedia = storedMedia.filter { it.isTrashed }
         val locationGroups = allMedia
             .filter { it.locationName.isNotBlank() }
             .groupBy { it.locationName }
@@ -318,6 +325,18 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 videoCount = favorites.count { it.type == MediaType.VIDEO },
                 isSmartAlbum = true,
                 iconType = "favorite"
+            )
+        )
+        smartAlbums.add(
+            Album(
+                id = "smart_trash",
+                name = "Bin",
+                items = trashedMedia,
+                coverItem = trashedMedia.firstOrNull(),
+                photoCount = trashedMedia.count { it.type == MediaType.PHOTO },
+                videoCount = trashedMedia.count { it.type == MediaType.VIDEO },
+                isSmartAlbum = true,
+                iconType = "trash"
             )
         )
         val videos = allMedia.filter { it.type == MediaType.VIDEO }
@@ -373,7 +392,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
         return LibraryIndex(
             allMedia = allMedia,
-            mediaById = allMedia.associateBy { it.id },
+            trashedMedia = trashedMedia,
+            mediaById = storedMedia.associateBy { it.id },
             locationGroups = locationGroups,
             albums = allAlbums,
             availableLocations = uniqueLocations,
@@ -753,7 +773,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun selectAll() {
-        val allIds = uiState.value.filteredMedia.map { it.id }.toSet()
+        val state = uiState.value
+        val allIds = (state.selectedAlbum?.items ?: state.filteredMedia).map { it.id }.toSet()
         _settings.update { it.copy(selectedItemIds = allIds) }
     }
 
@@ -769,7 +790,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         val ids = _settings.value.selectedItemIds.toList()
         if (ids.isEmpty()) return
         viewModelScope.launch {
-            val selectedMedia = uiState.value.allMedia.filter { it.id in ids }
+            val state = uiState.value
+            val selectedMedia = (state.allMedia + state.trashedMedia).filter { it.id in ids }
             val anyNotFavorite = selectedMedia.any { !it.isFavorite }
             repository.setFavoriteBatch(ids, anyNotFavorite)
         }
@@ -780,9 +802,21 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun requestDelete(ids: Set<Long>) {
-        if (ids.isEmpty() || _settings.value.pendingTrashItemIds.isNotEmpty()) return
-        val items = uiState.value.allMedia.filter { it.id in ids }
+        val settings = _settings.value
+        if (
+            ids.isEmpty() ||
+            settings.pendingTrashItemIds.isNotEmpty() ||
+            settings.pendingPermanentDeleteItemIds.isNotEmpty()
+        ) return
+        val state = uiState.value
+        val items = (state.allMedia + state.trashedMedia).filter { it.id in ids }
         if (items.isEmpty()) return
+
+        val alreadyTrashed = items.filter { it.isTrashed }
+        if (alreadyTrashed.isNotEmpty()) {
+            requestPermanentDelete(alreadyTrashed)
+            return
+        }
 
         val mediaStoreItems = items.filter { it.isMediaStoreItem() }
         val databaseOnlyIds = items.asSequence()
@@ -792,7 +826,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && mediaStoreItems.isNotEmpty()) {
             viewModelScope.launch {
-                finalizeDeletedItems(databaseOnlyIds)
+                moveItemsToBin(databaseOnlyIds)
                 _settings.update {
                     it.copy(pendingTrashItemIds = mediaStoreItems.map { item -> item.id }.toSet())
                 }
@@ -801,22 +835,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
 
         viewModelScope.launch {
-            val resolver = getApplication<Application>().contentResolver
-            val deletedIds = withContext(Dispatchers.IO) {
-                items.mapNotNull { item ->
-                    if (!item.isMediaStoreItem()) {
-                        item.id
-                    } else {
-                        try {
-                            if (resolver.delete(Uri.parse(item.uriString), null, null) > 0) item.id else null
-                        } catch (e: SecurityException) {
-                            Log.w("GalleryViewModel", "Android denied deletion for ${item.uriString}", e)
-                            null
-                        }
-                    }
-                }.toSet()
-            }
-            finalizeDeletedItems(deletedIds)
+            // Android 10 and older do not provide the modern system Trash request.
+            // Keep the backing file intact until the user deletes it from Bin.
+            moveItemsToBin(items.map { it.id }.toSet())
         }
     }
 
@@ -825,9 +846,72 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _settings.update { it.copy(pendingTrashItemIds = emptySet()) }
         if (!approved || pendingIds.isEmpty()) return
         viewModelScope.launch {
+            moveItemsToBin(pendingIds)
+            refreshDeviceMedia()
+        }
+    }
+
+    private suspend fun moveItemsToBin(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        repository.setTrashedBatch(ids.toList(), true)
+        _settings.update { current ->
+            current.copy(
+                selectedItemIds = current.selectedItemIds - ids,
+                activeItem = if (current.activeItem?.id in ids) null else current.activeItem
+            )
+        }
+    }
+
+    private fun requestPermanentDelete(items: List<MediaItem>) {
+        val mediaStoreItems = items.filter { it.isMediaStoreItem() }
+        val directDeleteItems = items.filterNot { it.isMediaStoreItem() }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && mediaStoreItems.isNotEmpty()) {
+            viewModelScope.launch {
+                permanentlyDeleteDirectItems(directDeleteItems)
+                _settings.update {
+                    it.copy(pendingPermanentDeleteItemIds = mediaStoreItems.map { item -> item.id }.toSet())
+                }
+            }
+            return
+        }
+        viewModelScope.launch {
+            permanentlyDeleteDirectItems(items)
+        }
+    }
+
+    fun onPermanentDeleteRequestResult(approved: Boolean) {
+        val pendingIds = _settings.value.pendingPermanentDeleteItemIds
+        _settings.update { it.copy(pendingPermanentDeleteItemIds = emptySet()) }
+        if (!approved || pendingIds.isEmpty()) return
+        viewModelScope.launch {
             finalizeDeletedItems(pendingIds)
             refreshDeviceMedia()
         }
+    }
+
+    private suspend fun permanentlyDeleteDirectItems(items: List<MediaItem>) {
+        if (items.isEmpty()) return
+        val resolver = getApplication<Application>().contentResolver
+        val deletedIds = withContext(Dispatchers.IO) {
+            items.mapNotNull { item ->
+                val uri = Uri.parse(item.uriString)
+                try {
+                    val deleted = when (uri.scheme) {
+                        "file" -> uri.path?.let { path ->
+                            val file = File(path)
+                            !file.exists() || file.delete()
+                        } == true
+                        "content" -> resolver.delete(uri, null, null) > 0
+                        else -> true
+                    }
+                    item.id.takeIf { deleted }
+                } catch (e: Exception) {
+                    Log.w("GalleryViewModel", "Unable to permanently delete ${item.uriString}", e)
+                    null
+                }
+            }.toSet()
+        }
+        finalizeDeletedItems(deletedIds)
     }
 
     private suspend fun finalizeDeletedItems(ids: Set<Long>) {

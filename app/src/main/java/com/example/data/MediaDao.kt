@@ -77,6 +77,9 @@ interface MediaDao {
     @Query("UPDATE media_items SET isFavorite = :isFavorite WHERE id = :id")
     suspend fun setFavorite(id: Long, isFavorite: Boolean)
 
+    @Query("UPDATE media_items SET isTrashed = :isTrashed WHERE id IN (:ids)")
+    suspend fun setTrashedBatch(ids: List<Long>, isTrashed: Boolean)
+
     @Query("UPDATE media_items SET title = :title, locationName = :location, dateEpochMillis = :dateEpochMillis WHERE id = :id")
     suspend fun updateMetadata(id: Long, title: String, location: String, dateEpochMillis: Long)
 

@@ -25,6 +25,7 @@ class GalleryRepository(private val mediaDao: MediaDao) {
             val staleIds = existing.asSequence()
                 .filter { it.type in scanResult.fullyScannedTypes }
                 .filter { it.isDeviceMediaStoreItem() }
+                .filterNot { it.isTrashed }
                 .filter { it.uriString !in scannedUriSet }
                 .map { it.id }
                 .toList()
@@ -100,6 +101,13 @@ class GalleryRepository(private val mediaDao: MediaDao) {
         if (ids.isEmpty()) return
         withContext(Dispatchers.IO) {
             mediaDao.setFavoriteBatch(ids, isFavorite)
+        }
+    }
+
+    suspend fun setTrashedBatch(ids: List<Long>, isTrashed: Boolean) {
+        if (ids.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            mediaDao.setTrashedBatch(ids, isTrashed)
         }
     }
 }

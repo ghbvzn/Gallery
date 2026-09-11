@@ -61,6 +61,7 @@ data class GalleryUiState(
     val selectedLocationFilter: String? = null,
     val selectedTagFilter: String? = null,
     val allMedia: List<MediaItem> = emptyList(),
+    val trashedMedia: List<MediaItem> = emptyList(),
     val filteredMedia: List<MediaItem> = emptyList(),
     val dateGroups: List<DateGroup> = emptyList(),
     val locationGroups: List<LocationGroup> = emptyList(),
@@ -84,7 +85,8 @@ data class GalleryUiState(
     val permissionRequested: Boolean = false,
     val selectedItemIds: Set<Long> = emptySet(),
     val showCameraScreen: Boolean = false,
-    val pendingTrashItemIds: Set<Long> = emptySet()
+    val pendingTrashItemIds: Set<Long> = emptySet(),
+    val pendingPermanentDeleteItemIds: Set<Long> = emptySet()
 ) {
     val isSelectionMode: Boolean get() = selectedItemIds.isNotEmpty()
 }

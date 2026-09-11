@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayCircle
@@ -66,6 +67,7 @@ fun AlbumCard(
         "video" -> Icons.Default.PlayCircle
         "camera" -> Icons.Default.CameraAlt
         "screenshot" -> Icons.Default.Screenshot
+        "trash" -> Icons.Default.Delete
         else -> Icons.Default.Folder
     }
 
@@ -74,6 +76,7 @@ fun AlbumCard(
         "video" -> AmberAccent
         "camera" -> MaterialTheme.colorScheme.primary
         "screenshot" -> MaterialTheme.colorScheme.secondary
+        "trash" -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 

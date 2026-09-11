@@ -31,10 +31,10 @@ to be committed.
 
 ## Current version
 
-Version 1.11.0 (version code 24) separates storage folders from real places.
-Albums use MediaStore folder names, while Places uses embedded photo/video GPS
-metadata and Android reverse geocoding, with coordinates as a fallback. It also
-includes the camera startup, zoom, focus, and capture-quality improvements.
+Version 1.12.0 (version code 25) adds a Bin smart album and a two-step deletion
+flow: removing media moves it out of normal gallery views, while deleting it
+from Bin permanently removes the backing file with Android confirmation where
+required. It also includes real GPS Places and the improved camera.
 
 ## License
 
