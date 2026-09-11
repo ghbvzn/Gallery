@@ -1,7 +1,12 @@
 package com.example.ui
 
 import android.app.Application
+import android.database.ContentObserver
 import android.net.Uri
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import android.util.Log
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -18,6 +23,7 @@ import com.example.data.ai.MediaAnalyzer
 import com.example.ui.util.DateTimeUtils
 import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -52,11 +58,13 @@ data class ViewSettings(
     val isSearching: Boolean = false,
     val isAnalyzingTags: Boolean = false,
     val aiTaggingNotice: String? = null,
+    val remoteAiEnabled: Boolean = false,
     val hasMediaPermission: Boolean = false,
     val isLoadingMedia: Boolean = false,
     val permissionRequested: Boolean = false,
     val selectedItemIds: Set<Long> = emptySet(),
-    val showCameraScreen: Boolean = false
+    val showCameraScreen: Boolean = false,
+    val pendingTrashItemIds: Set<Long> = emptySet()
 )
 
 private data class ContentSettings(
@@ -89,6 +97,17 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val repository: GalleryRepository
     private val mediaAnalyzer = MediaAnalyzer(application)
     private val deviceMediaScanner = DeviceMediaScanner(application)
+    private val _settings = MutableStateFlow(ViewSettings())
+    private var observerRefreshJob: Job? = null
+    private val mediaStoreObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            scheduleObservedMediaRefresh()
+        }
+
+        override fun onChange(selfChange: Boolean, uri: Uri?) {
+            scheduleObservedMediaRefresh()
+        }
+    }
 
     init {
         val db = GalleryDatabase.getDatabase(application)
@@ -97,9 +116,40 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             // Remove demo photos and videos
             repository.cleanupDemoData()
         }
+        try {
+            application.contentResolver.registerContentObserver(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                true,
+                mediaStoreObserver
+            )
+            application.contentResolver.registerContentObserver(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                true,
+                mediaStoreObserver
+            )
+        } catch (e: SecurityException) {
+            Log.w("GalleryViewModel", "Unable to observe MediaStore changes", e)
+        }
     }
 
-    private val _settings = MutableStateFlow(ViewSettings())
+    private fun scheduleObservedMediaRefresh() {
+        if (!_settings.value.hasMediaPermission) return
+        observerRefreshJob?.cancel()
+        observerRefreshJob = viewModelScope.launch {
+            // Cameras and editors often emit several changes for one save.
+            delay(750)
+            refreshDeviceMedia()
+        }
+    }
+
+    override fun onCleared() {
+        observerRefreshJob?.cancel()
+        try {
+            getApplication<Application>().contentResolver.unregisterContentObserver(mediaStoreObserver)
+        } catch (_: Exception) {
+        }
+        super.onCleared()
+    }
 
     private val filterSettings = _settings
         .map { settings ->
@@ -226,11 +276,13 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             isSearching = settings.isSearching,
             isAnalyzingTags = settings.isAnalyzingTags,
             aiTaggingNotice = settings.aiTaggingNotice,
+            remoteAiEnabled = settings.remoteAiEnabled,
             hasMediaPermission = settings.hasMediaPermission,
             isLoadingMedia = settings.isLoadingMedia,
             permissionRequested = settings.permissionRequested,
             selectedItemIds = settings.selectedItemIds,
-            showCameraScreen = settings.showCameraScreen
+            showCameraScreen = settings.showCameraScreen,
+            pendingTrashItemIds = settings.pendingTrashItemIds
         )
     }.stateIn(
         scope = viewModelScope,
@@ -525,14 +577,12 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 notes = notes,
                 tags = tags
             )
-            val newId = withContext(Dispatchers.IO) {
+            withContext(Dispatchers.IO) {
                 repository.insert(newItem)
             }
             _settings.update { it.copy(showAddDialog = false) }
 
-            // Auto-trigger AI analysis on newly uploaded media on background thread
-            val created = newItem.copy(id = newId)
-            analyzeMediaForTags(created)
+            // Analysis is manual so importing media never uploads a preview unexpectedly.
         }
     }
 
@@ -559,9 +609,18 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
      */
     fun analyzeMediaForTags(item: MediaItem) {
         viewModelScope.launch {
-            _settings.update { it.copy(isAnalyzingTags = true, aiTaggingNotice = "AI analyzing ${if (item.type == MediaType.PHOTO) "photo" else "video"} content...") }
+            val remoteEnabled = _settings.value.remoteAiEnabled
+            _settings.update {
+                it.copy(
+                    isAnalyzingTags = true,
+                    aiTaggingNotice = if (remoteEnabled)
+                        "Gemini is analyzing a reduced media preview..."
+                    else
+                        "Analyzing media locally..."
+                )
+            }
             try {
-                val result = mediaAnalyzer.analyzeMedia(item)
+                val result = mediaAnalyzer.analyzeMedia(item, allowRemoteAnalysis = remoteEnabled)
                 val suggestions = result.getOrNull() ?: emptyList()
                 // Filter out any tags the item already has
                 val newSuggestions = (item.suggestedTags + suggestions)
@@ -665,6 +724,18 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _settings.update { it.copy(aiTaggingNotice = null) }
     }
 
+    fun setRemoteAiEnabled(enabled: Boolean) {
+        _settings.update {
+            it.copy(
+                remoteAiEnabled = enabled,
+                aiTaggingNotice = if (enabled)
+                    "Gemini cloud tagging enabled for media you manually analyze"
+                else
+                    "Gemini cloud tagging disabled; analysis stays on device"
+            )
+        }
+    }
+
     fun toggleSelection(itemId: Long) {
         _settings.update { current ->
             val updated = current.selectedItemIds.toMutableSet()
@@ -687,18 +758,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun deleteSelectedItems() {
-        val idsToDelete = _settings.value.selectedItemIds.toList()
-        if (idsToDelete.isEmpty()) return
-        viewModelScope.launch {
-            repository.deleteBatch(idsToDelete)
-            _settings.update { current ->
-                val newActive = if (current.activeItem?.id in idsToDelete) null else current.activeItem
-                current.copy(
-                    selectedItemIds = emptySet(),
-                    activeItem = newActive
-                )
-            }
-        }
+        requestDelete(_settings.value.selectedItemIds)
     }
 
     fun toggleFavoriteSelected() {
@@ -712,12 +772,73 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun deleteItem(id: Long) {
-        viewModelScope.launch {
-            repository.delete(id)
-            if (_settings.value.activeItem?.id == id) {
-                _settings.update { it.copy(activeItem = null) }
+        requestDelete(setOf(id))
+    }
+
+    private fun requestDelete(ids: Set<Long>) {
+        if (ids.isEmpty() || _settings.value.pendingTrashItemIds.isNotEmpty()) return
+        val items = uiState.value.allMedia.filter { it.id in ids }
+        if (items.isEmpty()) return
+
+        val mediaStoreItems = items.filter { it.isMediaStoreItem() }
+        val databaseOnlyIds = items.asSequence()
+            .filterNot { it.isMediaStoreItem() }
+            .map { it.id }
+            .toSet()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && mediaStoreItems.isNotEmpty()) {
+            viewModelScope.launch {
+                finalizeDeletedItems(databaseOnlyIds)
+                _settings.update {
+                    it.copy(pendingTrashItemIds = mediaStoreItems.map { item -> item.id }.toSet())
+                }
             }
+            return
         }
+
+        viewModelScope.launch {
+            val resolver = getApplication<Application>().contentResolver
+            val deletedIds = withContext(Dispatchers.IO) {
+                items.mapNotNull { item ->
+                    if (!item.isMediaStoreItem()) {
+                        item.id
+                    } else {
+                        try {
+                            if (resolver.delete(Uri.parse(item.uriString), null, null) > 0) item.id else null
+                        } catch (e: SecurityException) {
+                            Log.w("GalleryViewModel", "Android denied deletion for ${item.uriString}", e)
+                            null
+                        }
+                    }
+                }.toSet()
+            }
+            finalizeDeletedItems(deletedIds)
+        }
+    }
+
+    fun onTrashRequestResult(approved: Boolean) {
+        val pendingIds = _settings.value.pendingTrashItemIds
+        _settings.update { it.copy(pendingTrashItemIds = emptySet()) }
+        if (!approved || pendingIds.isEmpty()) return
+        viewModelScope.launch {
+            finalizeDeletedItems(pendingIds)
+            refreshDeviceMedia()
+        }
+    }
+
+    private suspend fun finalizeDeletedItems(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        repository.deleteBatch(ids.toList())
+        _settings.update { current ->
+            current.copy(
+                selectedItemIds = current.selectedItemIds - ids,
+                activeItem = if (current.activeItem?.id in ids) null else current.activeItem
+            )
+        }
+    }
+
+    private fun MediaItem.isMediaStoreItem(): Boolean {
+        return uriString.startsWith("content://media/")
     }
 
     fun onPermissionResult(granted: Boolean) {

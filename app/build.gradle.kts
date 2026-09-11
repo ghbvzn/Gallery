@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.gallery.pxqmrt"
     minSdk = 24
     targetSdk = 36
-    versionCode = 19
-    versionName = "1.8.2"
+    versionCode = 20
+    versionName = "1.9.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -31,6 +31,14 @@ android {
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
+    System.getenv("DEBUG_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }?.let { path ->
+      create("environmentDebug") {
+        storeFile = file(path)
+        storePassword = "android"
+        keyAlias = "androiddebugkey"
+        keyPassword = "android"
+      }
+    }
   }
 
   buildTypes {
@@ -40,9 +48,11 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    // Use Android's standard per-developer debug key so a fresh clone builds
-    // without requiring an untracked keystore in the repository root.
-    debug { }
+    // Fresh clones use Android's standard per-developer debug key. Build agents
+    // may point at an existing ignored key without making it a source requirement.
+    debug {
+      signingConfigs.findByName("environmentDebug")?.let { signingConfig = it }
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11

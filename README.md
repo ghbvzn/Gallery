@@ -15,8 +15,10 @@ and optional Gemini-powered tag suggestions.
 
 1. Clone this repository and open it in Android Studio.
 2. Copy `.env.example` to `.env`.
-3. Replace `MY_GEMINI_API_KEY` if you want AI tag suggestions. Keep `.env`
-   private; it is ignored by Git.
+3. Replace `MY_GEMINI_API_KEY` if you want optional Gemini tag suggestions.
+   Keep `.env` private; it is ignored by Git. Cloud tagging is off by default
+   and must also be enabled in Settings. Only media explicitly submitted with
+   the Detect Tags action is sent for analysis.
 4. Run the `app` configuration, or build from a terminal:
 
    ```shell
@@ -29,8 +31,10 @@ to be committed.
 
 ## Current version
 
-Version 1.8.2 (version code 19) includes performance, media-sync, thumbnail
-memory, video playback, search, and bottom-navigation improvements.
+Version 1.9.0 (version code 20) adds real system Trash/Delete handling,
+debounced live MediaStore updates, and opt-in Gemini cloud tagging with clear
+privacy disclosure. It also includes the earlier performance and navigation
+improvements.
 
 ## License
 

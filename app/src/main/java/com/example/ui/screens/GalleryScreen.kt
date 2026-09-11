@@ -1,12 +1,15 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -218,9 +221,14 @@ fun GalleryScreen(
                 Manifest.permission.READ_MEDIA_IMAGES,
                 Manifest.permission.READ_MEDIA_VIDEO
             )
-        } else {
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             arrayOf(
                 Manifest.permission.READ_EXTERNAL_STORAGE
+            )
+        } else {
+            arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
             )
         }
     }
@@ -245,6 +253,37 @@ fun GalleryScreen(
     ) { permissionsMap ->
         val granted = permissionsMap.values.any { it }
         viewModel.onPermissionResult(granted)
+    }
+
+    val trashLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        viewModel.onTrashRequestResult(result.resultCode == Activity.RESULT_OK)
+    }
+
+    LaunchedEffect(uiState.pendingTrashItemIds) {
+        val pendingIds = uiState.pendingTrashItemIds
+        if (pendingIds.isEmpty()) return@LaunchedEffect
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            viewModel.onTrashRequestResult(false)
+            return@LaunchedEffect
+        }
+
+        val uris = uiState.allMedia.asSequence()
+            .filter { it.id in pendingIds }
+            .map { Uri.parse(it.uriString) }
+            .toList()
+        if (uris.isEmpty()) {
+            viewModel.onTrashRequestResult(false)
+            return@LaunchedEffect
+        }
+
+        try {
+            val request = MediaStore.createTrashRequest(context.contentResolver, uris, true)
+            trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+        } catch (_: Exception) {
+            viewModel.onTrashRequestResult(false)
+        }
     }
 
     // Ask for media permissions early on
@@ -874,7 +913,8 @@ fun GalleryScreen(
             onToggleVideoBadges = { viewModel.setShowVideoDurationBadge(it) },
             onSetThemeMode = { viewModel.setThemeMode(it) },
             onRefreshMedia = { viewModel.refreshDeviceMedia() },
-            onRequestPermission = { permissionLauncher.launch(mediaPermissions) }
+            onRequestPermission = { permissionLauncher.launch(mediaPermissions) },
+            onToggleRemoteAi = { viewModel.setRemoteAiEnabled(it) }
         )
     }
 
@@ -894,7 +934,12 @@ fun GalleryScreen(
                 Text("Delete $count ${if (count == 1) "item" else "items"}?")
             },
             text = {
-                Text("Are you sure you want to delete the selected ${if (count == 1) "memory" else "memories"}? This will permanently remove them from the gallery.")
+                Text(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+                        "The selected ${if (count == 1) "item" else "items"} will be moved to the system Trash. Android will ask you to confirm."
+                    else
+                        "The selected ${if (count == 1) "item" else "items"} will be deleted from the device. This cannot be undone."
+                )
             },
             confirmButton = {
                 Button(
@@ -905,7 +950,7 @@ fun GalleryScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier.testTag("confirm_batch_delete_button")
                 ) {
-                    Text("Delete")
+                    Text(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) "Move to Trash" else "Delete")
                 }
             },
             dismissButton = {

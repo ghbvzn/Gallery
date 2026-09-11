@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import android.net.Uri
+import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -1447,8 +1448,15 @@ fun MediaDetailViewer(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Media") },
-            text = { Text("Are you sure you want to remove \"${item.title}\" from your gallery?") },
+            title = { Text(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) "Move to Trash" else "Delete Media") },
+            text = {
+                Text(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+                        "Move \"${item.title}\" to the system Trash? Android will ask you to confirm."
+                    else
+                        "Permanently delete \"${item.title}\" from this device?"
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -1456,7 +1464,10 @@ fun MediaDetailViewer(
                         onDeleteItem(item.id)
                     }
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) "Move to Trash" else "Delete",
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
             },
             dismissButton = {

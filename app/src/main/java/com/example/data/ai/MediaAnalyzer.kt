@@ -100,7 +100,10 @@ class MediaAnalyzer(private val context: Context) {
 
     private val service = retrofit.create(GeminiRestService::class.java)
 
-    suspend fun analyzeMedia(item: MediaItem): Result<List<String>> = withContext(Dispatchers.IO) {
+    suspend fun analyzeMedia(
+        item: MediaItem,
+        allowRemoteAnalysis: Boolean = false
+    ): Result<List<String>> = withContext(Dispatchers.IO) {
         val apiKey = try {
             BuildConfig.GEMINI_API_KEY
         } catch (e: Throwable) {
@@ -118,8 +121,8 @@ class MediaAnalyzer(private val context: Context) {
             append("Output strictly a JSON object with schema: {\"suggestedTags\": [\"Tag 1\", \"Tag 2\", ...]} without extra markdown.")
         }
 
-        // Try remote Gemini API if key is valid
-        if (apiKey.isNotBlank() && apiKey != "MY_GEMINI_API_KEY") {
+        // Remote analysis is privacy-sensitive and must be explicitly enabled by the user.
+        if (allowRemoteAnalysis && apiKey.isNotBlank() && apiKey != "MY_GEMINI_API_KEY") {
             try {
                 val parts = mutableListOf<GeminiPart>()
                 parts.add(GeminiPart(text = prompt))

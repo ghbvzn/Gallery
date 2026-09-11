@@ -78,11 +78,13 @@ data class GalleryUiState(
     val isSearching: Boolean = false,
     val isAnalyzingTags: Boolean = false,
     val aiTaggingNotice: String? = null,
+    val remoteAiEnabled: Boolean = false,
     val hasMediaPermission: Boolean = false,
     val isLoadingMedia: Boolean = false,
     val permissionRequested: Boolean = false,
     val selectedItemIds: Set<Long> = emptySet(),
-    val showCameraScreen: Boolean = false
+    val showCameraScreen: Boolean = false,
+    val pendingTrashItemIds: Set<Long> = emptySet()
 ) {
     val isSelectionMode: Boolean get() = selectedItemIds.isNotEmpty()
 }
