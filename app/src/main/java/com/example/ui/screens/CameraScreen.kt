@@ -13,10 +13,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.FileOutputOptions
 import androidx.camera.video.Quality
@@ -34,6 +38,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,6 +71,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,6 +79,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -81,6 +90,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -88,12 +98,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Observer
 import com.example.data.MediaType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 enum class CameraMode {
     PHOTO,
@@ -175,6 +187,10 @@ fun CameraScreen(
     var hasBackCamera by remember { mutableStateOf(false) }
     var hasFrontCamera by remember { mutableStateOf(false) }
     var boundCamera by remember { mutableStateOf<Camera?>(null) }
+    var zoomRatio by remember { mutableFloatStateOf(1f) }
+    var linearZoom by remember { mutableFloatStateOf(0f) }
+    var minZoomRatio by remember { mutableFloatStateOf(1f) }
+    var maxZoomRatio by remember { mutableFloatStateOf(1f) }
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -188,7 +204,13 @@ fun CameraScreen(
 
     val imageCapture = remember {
         ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setJpegQuality(100)
+            .setResolutionSelector(
+                ResolutionSelector.Builder()
+                    .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
+                    .build()
+            )
             .build()
     }
     val videoCapture = remember {
@@ -273,9 +295,23 @@ fun CameraScreen(
                     videoCapture
                 )
             }
+            boundCamera?.cameraControl?.setZoomRatio(1f)
         } catch (exc: Exception) {
             Log.w("CameraScreen", "Camera binding failed: ${exc.message}")
         }
+    }
+
+    // Keep the controls synchronized with the physical camera's supported zoom range.
+    DisposableEffect(boundCamera, lifecycleOwner) {
+        val zoomState = boundCamera?.cameraInfo?.zoomState
+        val observer = Observer<ZoomState> { state ->
+            zoomRatio = state.zoomRatio
+            linearZoom = state.linearZoom
+            minZoomRatio = state.minZoomRatio
+            maxZoomRatio = state.maxZoomRatio
+        }
+        zoomState?.observe(lifecycleOwner, observer)
+        onDispose { zoomState?.removeObserver(observer) }
     }
 
     // Timer for video recording
@@ -327,7 +363,36 @@ fun CameraScreen(
         // Camera Preview View
         AndroidView(
             factory = { previewView },
-            modifier = Modifier.fillMaxSize()
+            update = { view ->
+                imageCapture.targetRotation = view.display.rotation
+                videoCapture.targetRotation = view.display.rotation
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(boundCamera, minZoomRatio, maxZoomRatio) {
+                    awaitEachGesture {
+                        do {
+                            val event = awaitPointerEvent()
+                            if (event.changes.size >= 2) {
+                                val currentZoom = boundCamera?.cameraInfo?.zoomState?.value?.zoomRatio
+                                    ?: zoomRatio
+                                val requestedZoom = (currentZoom * event.calculateZoom())
+                                    .coerceIn(minZoomRatio, maxZoomRatio)
+                                boundCamera?.cameraControl?.setZoomRatio(requestedZoom)
+                                event.changes.forEach { it.consume() }
+                            }
+                        } while (event.changes.any { it.pressed })
+                    }
+                }
+                .pointerInput(boundCamera) {
+                    detectTapGestures { offset ->
+                        val point = previewView.meteringPointFactory.createPoint(offset.x, offset.y)
+                        val action = FocusMeteringAction.Builder(point)
+                            .setAutoCancelDuration(3, TimeUnit.SECONDS)
+                            .build()
+                        boundCamera?.cameraControl?.startFocusAndMetering(action)
+                    }
+                }
         )
 
         // Shutter flash effect
@@ -432,6 +497,43 @@ fun CameraScreen(
                 .padding(bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            if (!isRecording && maxZoomRatio > minZoomRatio) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = String.format(Locale.getDefault(), "%.1fx", zoomRatio),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        modifier = Modifier.width(44.dp)
+                    )
+                    Slider(
+                        value = linearZoom,
+                        onValueChange = { value ->
+                            boundCamera?.cameraControl?.setLinearZoom(value.coerceIn(0f, 1f))
+                        },
+                        valueRange = 0f..1f,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("camera_zoom_slider")
+                    )
+                    Text(
+                        text = String.format(Locale.getDefault(), "%.1fx", maxZoomRatio),
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.width(44.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
             // Mode Selector (PHOTO / VIDEO)
             if (!isRecording) {
                 Row(

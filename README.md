@@ -31,10 +31,10 @@ to be committed.
 
 ## Current version
 
-Version 1.9.1 (version code 21) adds a responsive, inset-aware top app bar that
-keeps actions readable on narrow phones by moving secondary controls into an
-overflow menu. It also includes real system Trash/Delete handling, debounced
-live MediaStore updates, and opt-in Gemini cloud tagging.
+Version 1.10.0 (version code 22) adds smooth pinch and slider camera zoom,
+tap-to-focus, maximum-quality JPEG capture, and the highest available photo
+resolution on each device. It also includes the responsive top bar, real system
+Trash/Delete handling, live MediaStore updates, and opt-in Gemini cloud tagging.
 
 ## License
 
