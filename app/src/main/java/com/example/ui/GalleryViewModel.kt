@@ -292,7 +292,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     private fun buildLibraryIndex(allMedia: List<MediaItem>): LibraryIndex {
         val locationGroups = allMedia
-            .groupBy { it.locationName.ifBlank { "Unspecified Location" } }
+            .filter { it.locationName.isNotBlank() }
+            .groupBy { it.locationName }
             .map { (locName, items) ->
                 LocationGroup(
                     locationName = locName,
@@ -335,7 +336,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
         // Device & Folder Albums
         val folderAlbums = allMedia
-            .groupBy { it.locationName.ifBlank { "Photos" } }
+            .groupBy { it.folderName.ifBlank { "Imported" } }
             .map { (folderName, items) ->
                 val iconType = when {
                     folderName.contains("camera", ignoreCase = true) -> "camera"
@@ -522,12 +523,13 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             title = defaultTitle,
             uriString = fileUri.toString(),
             type = type,
-            location = "Camera",
+            location = "",
             dateEpochMillis = timestamp,
             durationSeconds = durationSeconds,
             resolution = resolution,
             notes = if (type == MediaType.PHOTO) "Photo captured with in-app camera" else "Video captured with in-app camera",
-            tags = listOf(if (type == MediaType.PHOTO) "photo" else "video", "camera")
+            tags = listOf(if (type == MediaType.PHOTO) "photo" else "video", "camera"),
+            folderName = "Camera"
         )
     }
 
@@ -548,7 +550,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         durationSeconds: Int = 0,
         resolution: String = "High Definition",
         notes: String = "",
-        tags: List<String> = emptyList()
+        tags: List<String> = emptyList(),
+        folderName: String = "Imported"
     ) {
         viewModelScope.launch {
             // Read EXIF and parse dimensions on background thread
@@ -568,7 +571,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 title = title.ifBlank { if (type == MediaType.PHOTO) "New Photo" else "New Video" },
                 uriString = uriString,
                 type = type,
-                locationName = location.ifBlank { "Home" },
+                locationName = location.trim(),
+                folderName = folderName,
                 latitude = exifLat,
                 longitude = exifLon,
                 dateEpochMillis = dateEpochMillis,

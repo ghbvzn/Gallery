@@ -14,6 +14,7 @@ data class MediaItem(
     val type: MediaType,
     val dateEpochMillis: Long,
     val locationName: String,
+    val folderName: String = "",
     val latitude: Double? = null,
     val longitude: Double? = null,
     val durationSeconds: Int = 0,

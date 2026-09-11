@@ -30,7 +30,7 @@ class GalleryRepository(private val mediaDao: MediaDao) {
                 .toList()
 
             // One Room transaction means one coherent UI update for additions/removals.
-            mediaDao.applyDeviceMediaSync(newItems, staleIds)
+            mediaDao.applyDeviceMediaSync(newItems, staleIds, scanResult.items)
         }
     }
 

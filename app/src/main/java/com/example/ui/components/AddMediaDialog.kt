@@ -398,7 +398,7 @@ fun AddMediaDialog(
                         title.ifBlank { if (selectedType == MediaType.PHOTO) "Captured Photo" else "Captured Video" },
                         uriString,
                         selectedType,
-                        location.ifBlank { "Home" },
+                        location.trim(),
                         selectedDateMillis,
                         if (selectedType == MediaType.VIDEO) durationSeconds else 0,
                         if (selectedType == MediaType.PHOTO) "High Resolution" else "1080p HD",

@@ -39,10 +39,37 @@ interface MediaDao {
     suspend fun insertAll(items: List<MediaItem>)
 
     @Transaction
-    suspend fun applyDeviceMediaSync(newItems: List<MediaItem>, staleIds: List<Long>) {
+    suspend fun applyDeviceMediaSync(
+        newItems: List<MediaItem>,
+        staleIds: List<Long>,
+        scannedItems: List<MediaItem>
+    ) {
         if (newItems.isNotEmpty()) insertAll(newItems)
         if (staleIds.isNotEmpty()) deleteByIds(staleIds)
+        scannedItems.forEach { item ->
+            updateScannedMetadata(
+                uriString = item.uriString,
+                folderName = item.folderName,
+                locationName = item.locationName,
+                latitude = item.latitude,
+                longitude = item.longitude
+            )
+        }
     }
+
+    @Query("""UPDATE media_items
+        SET folderName = :folderName,
+            locationName = CASE WHEN locationName = '' THEN :locationName ELSE locationName END,
+            latitude = COALESCE(latitude, :latitude),
+            longitude = COALESCE(longitude, :longitude)
+        WHERE uriString = :uriString""")
+    suspend fun updateScannedMetadata(
+        uriString: String,
+        folderName: String,
+        locationName: String,
+        latitude: Double?,
+        longitude: Double?
+    )
 
     @Update
     suspend fun update(item: MediaItem)

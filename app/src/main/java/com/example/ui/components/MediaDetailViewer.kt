@@ -1225,14 +1225,21 @@ fun MediaDetailViewer(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = item.locationName,
+                                    text = item.locationName.ifBlank { "No GPS location" },
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 if (item.latitude != null && item.longitude != null) {
                                     Text(
-                                        text = String.format(java.util.Locale.getDefault(), "%.4f° N, %.4f° W", item.latitude, item.longitude),
+                                        text = String.format(
+                                            java.util.Locale.getDefault(),
+                                            "%.4f° %s, %.4f° %s",
+                                            kotlin.math.abs(item.latitude),
+                                            if (item.latitude >= 0) "N" else "S",
+                                            kotlin.math.abs(item.longitude),
+                                            if (item.longitude >= 0) "E" else "W"
+                                        ),
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

@@ -5,8 +5,10 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [MediaItem::class], version = 2, exportSchema = false)
+@Database(entities = [MediaItem::class], version = 3, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class GalleryDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao
@@ -22,10 +24,28 @@ abstract class GalleryDatabase : RoomDatabase() {
                     GalleryDatabase::class.java,
                     "gallery_database"
                 )
+                    .addMigrations(MIGRATION_2_3)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE media_items ADD COLUMN folderName TEXT NOT NULL DEFAULT ''")
+                db.execSQL(
+                    """UPDATE media_items
+                       SET folderName = locationName, locationName = ''
+                       WHERE uriString LIKE 'content://media/%'"""
+                )
+                db.execSQL(
+                    """UPDATE media_items
+                       SET folderName = 'Camera', locationName = ''
+                       WHERE locationName = 'Camera'
+                         AND notes LIKE '%captured with in-app camera%'"""
+                )
             }
         }
     }

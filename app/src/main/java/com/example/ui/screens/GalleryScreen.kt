@@ -214,16 +214,19 @@ fun GalleryScreen(
             arrayOf(
                 Manifest.permission.READ_MEDIA_IMAGES,
                 Manifest.permission.READ_MEDIA_VIDEO,
-                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                Manifest.permission.ACCESS_MEDIA_LOCATION
             )
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(
                 Manifest.permission.READ_MEDIA_IMAGES,
-                Manifest.permission.READ_MEDIA_VIDEO
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.ACCESS_MEDIA_LOCATION
             )
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             arrayOf(
-                Manifest.permission.READ_EXTERNAL_STORAGE
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.ACCESS_MEDIA_LOCATION
             )
         } else {
             arrayOf(
@@ -250,9 +253,8 @@ fun GalleryScreen(
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissionsMap ->
-        val granted = permissionsMap.values.any { it }
-        viewModel.onPermissionResult(granted)
+    ) {
+        viewModel.onPermissionResult(checkPermissionsGranted())
     }
 
     val trashLauncher = rememberLauncherForActivityResult(
@@ -772,7 +774,18 @@ fun GalleryScreen(
 
                     NavigationBarItem(
                         selected = uiState.viewMode == GalleryViewMode.PLACES,
-                        onClick = { viewModel.selectViewMode(GalleryViewMode.PLACES) },
+                        onClick = {
+                            viewModel.selectViewMode(GalleryViewMode.PLACES)
+                            if (
+                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.ACCESS_MEDIA_LOCATION
+                                ) != PackageManager.PERMISSION_GRANTED
+                            ) {
+                                permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_MEDIA_LOCATION))
+                            }
+                        },
                         icon = {
                             Icon(
                                 imageVector = Icons.Default.LocationOn,
@@ -1191,14 +1204,14 @@ private fun PlacesContent(
         if (!hasMediaPermission) {
             EmptyGalleryState(
                 title = "Media Access Required",
-                message = "Allow media permission so photos and videos can be organized by location.",
+                message = "Allow photo location metadata access so items with GPS information can be organized by place.",
                 actionText = "Grant Permission",
                 onAction = onGrantPermission
             )
         } else {
             EmptyGalleryState(
-                title = "No Places Organized",
-                message = "No organized locations yet. Photos with location details will be grouped here.",
+                title = "No GPS Places Found",
+                message = "Only photos and videos with GPS metadata appear here. Storage folders remain in Albums.",
                 actionText = "Refresh Device Media",
                 onAction = onRefreshMedia
             )

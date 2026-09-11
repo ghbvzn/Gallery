@@ -31,10 +31,10 @@ to be committed.
 
 ## Current version
 
-Version 1.10.1 (version code 23) makes camera startup safe on devices whose
-preview is composed before a display is attached. It includes smooth pinch and
-slider zoom, tap-to-focus, maximum-quality JPEG capture, and the highest
-available photo resolution on each device.
+Version 1.11.0 (version code 24) separates storage folders from real places.
+Albums use MediaStore folder names, while Places uses embedded photo/video GPS
+metadata and Android reverse geocoding, with coordinates as a fallback. It also
+includes the camera startup, zoom, focus, and capture-quality improvements.
 
 ## License
 
