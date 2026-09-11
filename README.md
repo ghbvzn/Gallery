@@ -31,10 +31,10 @@ to be committed.
 
 ## Current version
 
-Version 1.9.0 (version code 20) adds real system Trash/Delete handling,
-debounced live MediaStore updates, and opt-in Gemini cloud tagging with clear
-privacy disclosure. It also includes the earlier performance and navigation
-improvements.
+Version 1.9.1 (version code 21) adds a responsive, inset-aware top app bar that
+keeps actions readable on narrow phones by moving secondary controls into an
+overflow menu. It also includes real system Trash/Delete handling, debounced
+live MediaStore updates, and opt-in Gemini cloud tagging.
 
 ## License
 

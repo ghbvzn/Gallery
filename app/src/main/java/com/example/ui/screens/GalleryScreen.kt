@@ -17,12 +17,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -57,6 +56,7 @@ import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
@@ -307,6 +307,8 @@ fun GalleryScreen(
     }
 
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
+    var topBarMenuExpanded by remember { mutableStateOf(false) }
+    var selectionMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -316,34 +318,40 @@ fun GalleryScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
-                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
             ) {
                 if (uiState.isSelectionMode) {
-                    TopAppBar(
-                        navigationIcon = {
-                            IconButton(
-                                onClick = { viewModel.clearSelection() },
-                                modifier = Modifier.testTag("exit_selection_mode_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Exit selection mode"
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val compactTopBar = maxWidth < 420.dp
+                        val selectedItems = remember(uiState.selectedItemIds, uiState.allMedia) {
+                            uiState.allMedia.filter { it.id in uiState.selectedItemIds }
+                        }
+                        val anyNotFav = selectedItems.any { !it.isFavorite }
+                        TopAppBar(
+                            navigationIcon = {
+                                IconButton(
+                                    onClick = { viewModel.clearSelection() },
+                                    modifier = Modifier.testTag("exit_selection_mode_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Exit selection mode"
+                                    )
+                                }
+                            },
+                            title = {
+                                Text(
+                                    text = "${uiState.selectedItemIds.size} selected",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.testTag("selection_count_label")
                                 )
-                            }
-                        },
-                        title = {
-                            Text(
-                                text = "${uiState.selectedItemIds.size} selected",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.testTag("selection_count_label")
-                            )
-                        },
-                        actions = {
+                            },
+                            actions = {
                             val allSelected = uiState.filteredMedia.isNotEmpty() &&
                                     uiState.filteredMedia.all { it.id in uiState.selectedItemIds }
 
-                            // Select All / Deselect All
                             IconButton(
                                 onClick = {
                                     if (allSelected) {
@@ -360,126 +368,196 @@ fun GalleryScreen(
                                 )
                             }
 
-                            // Batch Favorite
-                            val selectedItems = remember(uiState.selectedItemIds, uiState.allMedia) {
-                                uiState.allMedia.filter { it.id in uiState.selectedItemIds }
-                            }
-                            val anyNotFav = selectedItems.any { !it.isFavorite }
-                            IconButton(
-                                onClick = { viewModel.toggleFavoriteSelected() },
-                                modifier = Modifier.testTag("batch_favorite_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Favorite,
-                                    contentDescription = if (anyNotFav) "Favorite selected" else "Unfavorite selected",
-                                    tint = if (anyNotFav) MaterialTheme.colorScheme.onSurface else RoseFavorite
-                                )
-                            }
-
-                            // Batch Share
-                            IconButton(
-                                onClick = { shareMediaItems(context, selectedItems) },
-                                modifier = Modifier.testTag("batch_share_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Share,
-                                    contentDescription = "Share selected"
-                                )
-                            }
-
-                            // Batch Delete
-                            IconButton(
-                                onClick = { showBatchDeleteDialog = true },
-                                modifier = Modifier.testTag("batch_delete_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Delete selected",
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    )
-                } else {
-                    TopAppBar(
-                        title = {
-                            Column {
-                                Text(
-                                    text = "Gallery",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                                val totalItems = uiState.allMedia.size
-                                val albumsCount = uiState.albums.size
-                                val locationsCount = uiState.availableLocations.size
-                                Text(
-                                    text = "$totalItems memories • $albumsCount albums • $locationsCount places",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        },
-                        actions = {
-                            // Refresh Device Media Button
-                            IconButton(
-                                onClick = {
-                                    if (checkPermissionsGranted()) {
-                                        viewModel.refreshDeviceMedia()
-                                    } else {
-                                        permissionLauncher.launch(mediaPermissions)
+                            if (compactTopBar) {
+                                Box {
+                                    IconButton(
+                                        onClick = { selectionMenuExpanded = true },
+                                        modifier = Modifier.testTag("selection_overflow_button")
+                                    ) {
+                                        Icon(Icons.Default.MoreVert, contentDescription = "More selection actions")
                                     }
-                                },
-                                modifier = Modifier.testTag("refresh_media_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Refresh Device Media"
-                                )
+                                    DropdownMenu(
+                                        expanded = selectionMenuExpanded,
+                                        onDismissRequest = { selectionMenuExpanded = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text(if (anyNotFav) "Favorite selected" else "Unfavorite selected") },
+                                            leadingIcon = { Icon(Icons.Default.Favorite, contentDescription = null) },
+                                            onClick = {
+                                                selectionMenuExpanded = false
+                                                viewModel.toggleFavoriteSelected()
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Share selected") },
+                                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                                            onClick = {
+                                                selectionMenuExpanded = false
+                                                shareMediaItems(context, selectedItems)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Delete selected", color = MaterialTheme.colorScheme.error) },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                            },
+                                            onClick = {
+                                                selectionMenuExpanded = false
+                                                showBatchDeleteDialog = true
+                                            }
+                                        )
+                                    }
+                                }
+                            } else {
+                                IconButton(
+                                    onClick = { viewModel.toggleFavoriteSelected() },
+                                    modifier = Modifier.testTag("batch_favorite_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Favorite,
+                                        contentDescription = if (anyNotFav) "Favorite selected" else "Unfavorite selected",
+                                        tint = if (anyNotFav) MaterialTheme.colorScheme.onSurface else RoseFavorite
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { shareMediaItems(context, selectedItems) },
+                                    modifier = Modifier.testTag("batch_share_button")
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = "Share selected")
+                                }
+                                IconButton(
+                                    onClick = { showBatchDeleteDialog = true },
+                                    modifier = Modifier.testTag("batch_delete_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete selected",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
-
-                            // Search Button
-                            IconButton(
-                                onClick = { viewModel.toggleSearch() },
-                                modifier = Modifier.testTag("toggle_search_button")
-                            ) {
-                                Icon(
-                                    imageVector = if (uiState.isSearching) Icons.Default.Close else Icons.Default.Search,
-                                    contentDescription = "Search"
-                                )
-                            }
-
-                            // Sort Order Toggle Button
-                            IconButton(
-                                onClick = { viewModel.toggleSortOrder() },
-                                modifier = Modifier.testTag("toggle_sort_button")
-                            ) {
-                                Icon(
-                                    imageVector = if (uiState.sortOrder == SortOrder.NEWEST_FIRST)
-                                        Icons.Default.ArrowDownward
-                                    else
-                                        Icons.Default.ArrowUpward,
-                                    contentDescription = "Sort Order: ${uiState.sortOrder.name}"
-                                )
-                            }
-
-                            // Settings Menu Button
-                            IconButton(
-                                onClick = { viewModel.setSettingsDialogVisible(true) },
-                                modifier = Modifier.testTag("settings_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Settings,
-                                    contentDescription = "Settings"
-                                )
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
                         )
-                    )
+                    }
+                } else {
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val compactTopBar = maxWidth < 420.dp
+                        val veryCompactTopBar = maxWidth < 360.dp
+                        val refreshMedia = {
+                            if (checkPermissionsGranted()) viewModel.refreshDeviceMedia()
+                            else permissionLauncher.launch(mediaPermissions)
+                        }
+                        TopAppBar(
+                            title = {
+                                Column {
+                                    Text(
+                                        text = "Gallery",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1
+                                    )
+                                    if (!veryCompactTopBar) {
+                                        Text(
+                                            text = "${uiState.allMedia.size} memories • ${uiState.albums.size} albums • ${uiState.availableLocations.size} places",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            },
+                            actions = {
+                                if (!compactTopBar) {
+                                    IconButton(
+                                        onClick = refreshMedia,
+                                        modifier = Modifier.testTag("refresh_media_button")
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Device Media")
+                                    }
+                                }
+                                IconButton(
+                                    onClick = { viewModel.toggleSearch() },
+                                    modifier = Modifier.testTag("toggle_search_button")
+                                ) {
+                                    Icon(
+                                        imageVector = if (uiState.isSearching) Icons.Default.Close else Icons.Default.Search,
+                                        contentDescription = "Search"
+                                    )
+                                }
+                                if (!compactTopBar) {
+                                    IconButton(
+                                        onClick = { viewModel.toggleSortOrder() },
+                                        modifier = Modifier.testTag("toggle_sort_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = if (uiState.sortOrder == SortOrder.NEWEST_FIRST)
+                                                Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
+                                            contentDescription = "Sort Order: ${uiState.sortOrder.name}"
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.setSettingsDialogVisible(true) },
+                                        modifier = Modifier.testTag("settings_button")
+                                    ) {
+                                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+                                    }
+                                } else {
+                                    Box {
+                                        IconButton(
+                                            onClick = { topBarMenuExpanded = true },
+                                            modifier = Modifier.testTag("top_bar_overflow_button")
+                                        ) {
+                                            Icon(Icons.Default.MoreVert, contentDescription = "More gallery actions")
+                                        }
+                                        DropdownMenu(
+                                            expanded = topBarMenuExpanded,
+                                            onDismissRequest = { topBarMenuExpanded = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Refresh media") },
+                                                leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                                                onClick = {
+                                                    topBarMenuExpanded = false
+                                                    refreshMedia()
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(if (uiState.sortOrder == SortOrder.NEWEST_FIRST) "Oldest first" else "Newest first")
+                                                },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        if (uiState.sortOrder == SortOrder.NEWEST_FIRST)
+                                                            Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                                                        contentDescription = null
+                                                    )
+                                                },
+                                                onClick = {
+                                                    topBarMenuExpanded = false
+                                                    viewModel.toggleSortOrder()
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Settings") },
+                                                leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                                                onClick = {
+                                                    topBarMenuExpanded = false
+                                                    viewModel.setSettingsDialogVisible(true)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            )
+                        )
+                    }
                 }
 
                 // Scanning Progress Indicator
