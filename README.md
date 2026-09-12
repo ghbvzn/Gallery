@@ -26,10 +26,10 @@ to be committed.
 
 ## Current version
 
-Version 1.14.0 (version code 27) shows the complete uncropped video frame so
-CameraX's 1.0x preview matches the recorded field of view. Camera gestures are
-isolated from the gallery behind them, and trash/delete/restore operations update
-the cached library immediately without redundant full-device rescans.
+Version 1.15.0 (version code 28) adds 4:3 and 16:9 photo capture options, plus
+capability-aware video resolution and FPS menus. Each camera lens shows only the
+resolutions and regular frame-rate ranges it reports as supported, with safe Auto
+defaults and fallback behavior for unusual devices.
 
 ## License
 

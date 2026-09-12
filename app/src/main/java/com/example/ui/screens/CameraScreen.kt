@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
+import android.util.Range
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -13,6 +14,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.DynamicRange
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -69,6 +71,8 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -117,6 +121,19 @@ enum class FlashState {
     OFF,
     ON,
     AUTO
+}
+
+private enum class PhotoAspectRatio(val label: String, val strategy: AspectRatioStrategy) {
+    STANDARD("4:3", AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY),
+    WIDE("16:9", AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+}
+
+private enum class VideoResolution(val label: String, val quality: Quality?) {
+    AUTO("Auto", null),
+    UHD("4K", Quality.UHD),
+    FHD("1080p", Quality.FHD),
+    HD("720p", Quality.HD),
+    SD("480p", Quality.SD)
 }
 
 @Composable
@@ -173,6 +190,11 @@ fun CameraScreen(
     var cameraMode by remember { mutableStateOf(CameraMode.PHOTO) }
     var lensFacing by remember { mutableStateOf(CameraSelector.LENS_FACING_BACK) }
     var flashState by remember { mutableStateOf(FlashState.OFF) }
+    var photoAspectRatio by remember { mutableStateOf(PhotoAspectRatio.STANDARD) }
+    var videoResolution by remember { mutableStateOf(VideoResolution.AUTO) }
+    var selectedVideoFpsRange by remember { mutableStateOf<Range<Int>?>(null) }
+    var supportedVideoResolutions by remember { mutableStateOf(listOf(VideoResolution.AUTO)) }
+    var supportedVideoFpsRanges by remember { mutableStateOf(emptyList<Range<Int>>()) }
 
     // Video Recording state
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
@@ -213,27 +235,31 @@ fun CameraScreen(
         }
     }
 
-    val imageCapture = remember {
+    val imageCapture = remember(photoAspectRatio) {
         ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
             .setJpegQuality(100)
             .setResolutionSelector(
                 ResolutionSelector.Builder()
+                    .setAspectRatioStrategy(photoAspectRatio.strategy)
                     .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
                     .build()
             )
             .build()
     }
-    val videoCapture = remember {
+    val videoCapture = remember(videoResolution, selectedVideoFpsRange) {
+        val requestedQuality = videoResolution.quality ?: Quality.HIGHEST
         val recorder = Recorder.Builder()
             .setQualitySelector(
                 QualitySelector.from(
-                    Quality.HIGHEST,
+                    requestedQuality,
                     FallbackStrategy.higherQualityOrLowerThan(Quality.SD)
                 )
             )
             .build()
-        VideoCapture.withOutput(recorder)
+        VideoCapture.Builder(recorder).apply {
+            selectedVideoFpsRange?.let(::setTargetFrameRate)
+        }.build()
     }
 
     // Query camera provider and check capabilities once
@@ -318,8 +344,40 @@ fun CameraScreen(
                 )
             }
             boundCamera?.cameraControl?.setZoomRatio(1f)
+
+            boundCamera?.cameraInfo?.let { cameraInfo ->
+                val supportedQualities = Recorder.getVideoCapabilities(cameraInfo)
+                    .getSupportedQualities(DynamicRange.SDR)
+                supportedVideoResolutions = listOf(VideoResolution.AUTO) +
+                    VideoResolution.entries.drop(1).filter { it.quality in supportedQualities }
+
+                supportedVideoFpsRanges = cameraInfo.supportedFrameRateRanges
+                    .filter { it.upper in 24..240 }
+                    .groupBy { it.upper }
+                    .map { (_, ranges) -> ranges.minBy { it.upper - it.lower } }
+                    .sortedBy { it.upper }
+
+                if (videoResolution !in supportedVideoResolutions) {
+                    videoResolution = VideoResolution.AUTO
+                }
+                if (selectedVideoFpsRange != null && selectedVideoFpsRange !in supportedVideoFpsRanges) {
+                    selectedVideoFpsRange = null
+                }
+            }
         } catch (exc: Exception) {
             Log.w("CameraScreen", "Camera binding failed: ${exc.message}")
+            if (
+                cameraMode == CameraMode.VIDEO &&
+                (videoResolution != VideoResolution.AUTO || selectedVideoFpsRange != null)
+            ) {
+                Toast.makeText(
+                    context,
+                    "That resolution and FPS combination is unavailable. Using Auto.",
+                    Toast.LENGTH_SHORT
+                ).show()
+                videoResolution = VideoResolution.AUTO
+                selectedVideoFpsRange = null
+            }
         }
     }
 
@@ -523,6 +581,39 @@ fun CameraScreen(
                 .padding(bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            if (!isRecording) {
+                Row(
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(22.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (cameraMode == CameraMode.PHOTO) {
+                        CameraOptionMenu(
+                            label = "ASPECT",
+                            selectedLabel = photoAspectRatio.label,
+                            options = PhotoAspectRatio.entries.map { it.label to it },
+                            onSelect = { photoAspectRatio = it }
+                        )
+                    } else {
+                        CameraOptionMenu(
+                            label = "RESOLUTION",
+                            selectedLabel = videoResolution.label,
+                            options = supportedVideoResolutions.map { it.label to it },
+                            onSelect = { videoResolution = it }
+                        )
+                        CameraOptionMenu(
+                            label = "FPS",
+                            selectedLabel = selectedVideoFpsRange?.fpsLabel() ?: "Auto",
+                            options = listOf("Auto" to null) + supportedVideoFpsRanges.map { it.fpsLabel() to it },
+                            onSelect = { selectedVideoFpsRange = it }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
             if (!isRecording && maxZoomRatio > minZoomRatio) {
                 Row(
                     modifier = Modifier
@@ -659,7 +750,12 @@ fun CameraScreen(
                                             shutterFlashAlpha.animateTo(0f, animationSpec = tween(250))
                                         }
                                         Toast.makeText(context, "Photo captured & saved to Gallery", Toast.LENGTH_SHORT).show()
-                                        onMediaCaptured(uri, MediaType.PHOTO, 0, "High Definition")
+                                        onMediaCaptured(
+                                            uri,
+                                            MediaType.PHOTO,
+                                            0,
+                                            "${photoAspectRatio.label} • Maximum quality"
+                                        )
                                     }
                                 )
                             } else {
@@ -680,7 +776,13 @@ fun CameraScreen(
                                             isRecording = false
                                             activeRecording = null
                                             Toast.makeText(context, "Video saved to Gallery", Toast.LENGTH_SHORT).show()
-                                            onMediaCaptured(uri, MediaType.VIDEO, durationSec, "1080p")
+                                            val fpsLabel = selectedVideoFpsRange?.upper?.let { " • $it fps" }.orEmpty()
+                                            onMediaCaptured(
+                                                uri,
+                                                MediaType.VIDEO,
+                                                durationSec,
+                                                "${videoResolution.label}$fpsLabel"
+                                            )
                                         }
                                     )
                                     activeRecording = recording
@@ -765,6 +867,49 @@ fun CameraScreen(
             }
         }
     }
+}
+
+@Composable
+private fun <T> CameraOptionMenu(
+    label: String,
+    selectedLabel: String,
+    options: List<Pair<String, T>>,
+    onSelect: (T) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Surface(
+            color = Color.White.copy(alpha = 0.16f),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .clickable { expanded = true }
+                .testTag("camera_${label.lowercase(Locale.ROOT)}_menu")
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(label, color = Color.White.copy(alpha = 0.65f), fontSize = 9.sp)
+                Text(selectedLabel, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (optionLabel, option) ->
+                DropdownMenuItem(
+                    text = { Text(optionLabel) },
+                    onClick = {
+                        expanded = false
+                        onSelect(option)
+                    }
+                )
+            }
+        }
+    }
+}
+
+private fun Range<Int>.fpsLabel(): String {
+    return if (lower == upper) "$upper" else "$lower–$upper"
 }
 
 private fun takePhoto(
