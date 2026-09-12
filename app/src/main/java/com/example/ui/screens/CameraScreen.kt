@@ -12,7 +12,6 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import android.util.Range
-import android.util.Rational
 import android.view.ViewGroup
 import android.view.Surface as AndroidSurface
 import android.widget.Toast
@@ -27,8 +26,6 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.core.SessionConfig
-import androidx.camera.core.UseCaseGroup
-import androidx.camera.core.ViewPort
 import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
@@ -138,11 +135,10 @@ enum class FlashState {
 
 private enum class PhotoAspectRatio(
     val label: String,
-    val strategy: AspectRatioStrategy,
-    val cropRatio: Rational
+    val strategy: AspectRatioStrategy
 ) {
-    STANDARD("4:3", AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY, Rational(4, 3)),
-    WIDE("16:9", AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY, Rational(16, 9))
+    STANDARD("4:3", AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY),
+    WIDE("16:9", AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
 }
 
 private enum class VideoResolution(val label: String, val quality: Quality?) {
@@ -339,19 +335,11 @@ fun CameraScreen(
             }
 
             boundCamera = if (cameraMode == CameraMode.PHOTO) {
-                val photoGroup = UseCaseGroup.Builder()
-                    .setViewPort(
-                        ViewPort.Builder(photoAspectRatio.cropRatio, targetRotation)
-                            .setScaleType(ViewPort.FILL_CENTER)
-                            .build()
-                    )
-                    .addUseCase(preview)
-                    .addUseCase(imageCapture)
-                    .build()
                 provider.bindToLifecycle(
                     lifecycleOwner,
                     cameraSelector,
-                    photoGroup
+                    preview,
+                    imageCapture
                 )
             } else {
                 val cameraInfo = provider.getCameraInfo(cameraSelector)
@@ -364,12 +352,7 @@ fun CameraScreen(
                     return@LaunchedEffect
                 }
 
-                val videoViewPort = ViewPort.Builder(Rational(16, 9), targetRotation)
-                    .setScaleType(ViewPort.FILL_CENTER)
-                    .build()
-                val baseSession = SessionConfig.Builder(preview, videoCapture)
-                    .setViewPort(videoViewPort)
-                    .build()
+                val baseSession = SessionConfig.Builder(preview, videoCapture).build()
                 val compatibleFpsRanges = cameraInfo.getSupportedFrameRateRanges(baseSession)
                     .filter { it.upper in 24..240 }
                     .groupBy { it.upper }
@@ -384,7 +367,6 @@ fun CameraScreen(
                 }
 
                 val session = SessionConfig.Builder(preview, videoCapture).apply {
-                    setViewPort(videoViewPort)
                     selectedVideoFpsRange?.let(::setFrameRateRange)
                 }.build()
                 provider.bindToLifecycle(lifecycleOwner, cameraSelector, session)

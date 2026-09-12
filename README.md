@@ -26,10 +26,10 @@ to be committed.
 
 ## Current version
 
-Version 1.19.0 (version code 32) shows the complete photo and video frame in gallery
-grid cards instead of center-cropping media into the square thumbnail. This is most
-noticeable for wide 16:9 captures. Camera output continues to use Android MediaStore
-under `DCIM/Gallery` so captures are visible to Google Photos and other gallery apps.
+Version 1.20.0 (version code 33) removes CameraX's forced viewport crop from photos
+and videos. Captures now save the full buffer selected for the requested aspect ratio
+instead of applying another center crop before writing the file. Camera output remains
+in `DCIM/Gallery` so it is visible to Google Photos and other gallery apps.
 
 ## License
 
