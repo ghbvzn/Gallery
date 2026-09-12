@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Environment
 import android.util.Log
 import android.util.Range
+import android.util.Rational
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -123,9 +124,13 @@ enum class FlashState {
     AUTO
 }
 
-private enum class PhotoAspectRatio(val label: String, val strategy: AspectRatioStrategy) {
-    STANDARD("4:3", AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY),
-    WIDE("16:9", AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+private enum class PhotoAspectRatio(
+    val label: String,
+    val strategy: AspectRatioStrategy,
+    val cropRatio: Rational
+) {
+    STANDARD("4:3", AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY, Rational(4, 3)),
+    WIDE("16:9", AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY, Rational(16, 9))
 }
 
 private enum class VideoResolution(val label: String, val quality: Quality?) {
@@ -246,6 +251,7 @@ fun CameraScreen(
                     .build()
             )
             .build()
+            .also { it.setCropAspectRatio(photoAspectRatio.cropRatio) }
     }
     val videoCapture = remember(videoResolution, selectedVideoFpsRange) {
         val requestedQuality = videoResolution.quality ?: Quality.HIGHEST
@@ -294,7 +300,14 @@ fun CameraScreen(
     }
 
     // Bind camera safely when provider, lens facing, mode, or lifecycle changes
-    LaunchedEffect(cameraProvider, lensFacing, cameraMode, lifecycleOwner) {
+    LaunchedEffect(
+        cameraProvider,
+        lensFacing,
+        cameraMode,
+        lifecycleOwner,
+        imageCapture,
+        videoCapture
+    ) {
         val provider = cameraProvider ?: return@LaunchedEffect
         val cameraSelector = CameraSelector.Builder()
             .requireLensFacing(lensFacing)
@@ -316,7 +329,7 @@ fun CameraScreen(
             val previewAspectRatio = if (cameraMode == CameraMode.VIDEO) {
                 AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY
             } else {
-                AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
+                photoAspectRatio.strategy
             }
             val preview = Preview.Builder()
                 .setResolutionSelector(
@@ -489,99 +502,98 @@ fun CameraScreen(
         }
 
         // Top Controls Bar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Close Button
-            IconButton(
-                onClick = {
-                    if (isRecording) {
-                        activeRecording?.stop()
-                        activeRecording = null
-                    }
-                    onClose()
-                },
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(Color.Black.copy(alpha = 0.45f), CircleShape)
-                    .testTag("camera_close_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close Camera",
-                    tint = Color.White
-                )
-            }
-
-            // Center Recording Timer Indicator (when recording video)
-            if (isRecording) {
-                Row(
-                    modifier = Modifier
-                        .background(Color.Red.copy(alpha = 0.85f), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(Color.White)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    val minutes = recordingSeconds / 60
-                    val seconds = recordingSeconds % 60
-                    Text(
-                        text = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                }
-            } else {
-                Spacer(modifier = Modifier.width(48.dp))
-            }
-
-            // Flash Toggle Button
-            IconButton(
-                onClick = {
-                    flashState = when (flashState) {
-                        FlashState.OFF -> FlashState.ON
-                        FlashState.ON -> FlashState.AUTO
-                        FlashState.AUTO -> FlashState.OFF
-                    }
-                },
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(Color.Black.copy(alpha = 0.45f), CircleShape)
-                    .testTag("camera_flash_button")
-            ) {
-                Icon(
-                    imageVector = when (flashState) {
-                        FlashState.OFF -> Icons.Default.FlashOff
-                        FlashState.ON -> Icons.Default.FlashOn
-                        FlashState.AUTO -> Icons.Default.FlashAuto
-                    },
-                    contentDescription = "Flash: ${flashState.name}",
-                    tint = if (flashState != FlashState.OFF) Color(0xFFFFD54F) else Color.White
-                )
-            }
-        }
-
-        // Bottom Controls Container
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 24.dp),
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Close Button
+                IconButton(
+                    onClick = {
+                        if (isRecording) {
+                            activeRecording?.stop()
+                            activeRecording = null
+                        }
+                        onClose()
+                    },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                        .testTag("camera_close_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close Camera",
+                        tint = Color.White
+                    )
+                }
+
+                // Center Recording Timer Indicator (when recording video)
+                if (isRecording) {
+                    Row(
+                        modifier = Modifier
+                            .background(Color.Red.copy(alpha = 0.85f), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        val minutes = recordingSeconds / 60
+                        val seconds = recordingSeconds % 60
+                        Text(
+                            text = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.width(48.dp))
+                }
+
+                // Flash Toggle Button
+                IconButton(
+                    onClick = {
+                        flashState = when (flashState) {
+                            FlashState.OFF -> FlashState.ON
+                            FlashState.ON -> FlashState.AUTO
+                            FlashState.AUTO -> FlashState.OFF
+                        }
+                    },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                        .testTag("camera_flash_button")
+                ) {
+                    Icon(
+                        imageVector = when (flashState) {
+                            FlashState.OFF -> Icons.Default.FlashOff
+                            FlashState.ON -> Icons.Default.FlashOn
+                            FlashState.AUTO -> Icons.Default.FlashAuto
+                        },
+                        contentDescription = "Flash: ${flashState.name}",
+                        tint = if (flashState != FlashState.OFF) Color(0xFFFFD54F) else Color.White
+                    )
+                }
+            }
+
             if (!isRecording) {
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier
                         .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(22.dp))
@@ -611,8 +623,18 @@ fun CameraScreen(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(10.dp))
             }
+        }
+
+        // Bottom Controls Container
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
 
             if (!isRecording && maxZoomRatio > minZoomRatio) {
                 Row(

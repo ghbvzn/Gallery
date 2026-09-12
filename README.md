@@ -26,10 +26,10 @@ to be committed.
 
 ## Current version
 
-Version 1.15.0 (version code 28) adds 4:3 and 16:9 photo capture options, plus
-capability-aware video resolution and FPS menus. Each camera lens shows only the
-resolutions and regular frame-rate ranges it reports as supported, with safe Auto
-defaults and fallback behavior for unusual devices.
+Version 1.16.0 (version code 29) moves the photo aspect-ratio and video quality/FPS
+controls to the top camera bar. Setting changes now rebind the active CameraX use
+cases, photo ratios are applied to the saved JPEG crop, and selected video quality
+and frame-rate ranges are applied to the actual recording pipeline.
 
 ## License
 
