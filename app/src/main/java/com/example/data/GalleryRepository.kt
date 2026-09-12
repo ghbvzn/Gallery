@@ -13,6 +13,7 @@ class GalleryRepository(private val mediaDao: MediaDao) {
     suspend fun cleanupDemoData() {
         withContext(Dispatchers.IO) {
             mediaDao.deleteDemoItems()
+            mediaDao.deleteDuplicateUris()
         }
     }
 
@@ -44,7 +45,7 @@ class GalleryRepository(private val mediaDao: MediaDao) {
 
     suspend fun insert(item: MediaItem): Long {
         return withContext(Dispatchers.IO) {
-            mediaDao.insert(item)
+            mediaDao.upsertByUri(item)
         }
     }
 

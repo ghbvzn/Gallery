@@ -26,6 +26,15 @@ interface MediaDao {
     @Query("DELETE FROM media_items WHERE uriString LIKE 'android.resource://%'")
     suspend fun deleteDemoItems()
 
+    @Query("""DELETE FROM media_items
+        WHERE id NOT IN (
+            SELECT MAX(id) FROM media_items GROUP BY uriString
+        )""")
+    suspend fun deleteDuplicateUris()
+
+    @Query("DELETE FROM media_items WHERE uriString = :uriString AND id != :keepId")
+    suspend fun deleteOtherRowsForUri(uriString: String, keepId: Long)
+
     @Query("SELECT DISTINCT locationName FROM media_items WHERE locationName != '' ORDER BY locationName ASC")
     fun getAllLocations(): Flow<List<String>>
 
@@ -39,12 +48,32 @@ interface MediaDao {
     suspend fun insertAll(items: List<MediaItem>)
 
     @Transaction
+    suspend fun upsertByUri(item: MediaItem): Long {
+        val existing = getMediaByUri(item.uriString)
+        if (existing == null) return insert(item)
+
+        update(
+            item.copy(
+                id = existing.id,
+                isFavorite = existing.isFavorite,
+                isTrashed = existing.isTrashed
+            )
+        )
+        deleteOtherRowsForUri(item.uriString, existing.id)
+        return existing.id
+    }
+
+    @Transaction
     suspend fun applyDeviceMediaSync(
         newItems: List<MediaItem>,
         staleIds: List<Long>,
         scannedItems: List<MediaItem>
     ) {
-        if (newItems.isNotEmpty()) insertAll(newItems)
+        // Recheck inside this transaction because a camera completion callback can
+        // register the same MediaStore URI while a scan is in progress.
+        newItems.forEach { item ->
+            if (getMediaByUri(item.uriString) == null) insert(item)
+        }
         if (staleIds.isNotEmpty()) deleteByIds(staleIds)
         scannedItems.forEach { item ->
             updateScannedMetadata(
@@ -55,6 +84,7 @@ interface MediaDao {
                 longitude = item.longitude
             )
         }
+        deleteDuplicateUris()
     }
 
     @Query("""UPDATE media_items

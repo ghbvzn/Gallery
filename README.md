@@ -26,10 +26,10 @@ to be committed.
 
 ## Current version
 
-Version 1.20.0 (version code 33) removes CameraX's forced viewport crop from photos
-and videos. Captures now save the full buffer selected for the requested aspect ratio
-instead of applying another center crop before writing the file. Camera output remains
-in `DCIM/Gallery` so it is visible to Google Photos and other gallery apps.
+Version 1.21.0 (version code 34) prevents duplicate in-app video entries by making
+MediaStore registration transactional and unique by URI. Existing duplicate database
+rows are cleaned automatically while the newest entry is retained. The public video
+file itself remains a single item in `DCIM/Gallery` for all gallery apps.
 
 ## License
 

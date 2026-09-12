@@ -55,4 +55,34 @@ class GalleryTaggingRobolectricTest {
         val exifData = com.example.data.ExifMetadataHelper.readExifData(context, testUri)
         assertTrue(exifData is com.example.data.MediaExifData)
     }
+
+    @Test
+    fun testRepeatedMediaStoreUriIsUpsertedWithoutDuplicate() = runBlocking {
+        val uri = "content://media/external/video/media/987654321"
+        repository.insert(
+            MediaItem(
+                title = "Scanner copy",
+                uriString = uri,
+                type = MediaType.VIDEO,
+                dateEpochMillis = 1L,
+                locationName = "",
+                durationSeconds = 0
+            )
+        )
+        repository.insert(
+            MediaItem(
+                title = "Finished recording",
+                uriString = uri,
+                type = MediaType.VIDEO,
+                dateEpochMillis = 2L,
+                locationName = "",
+                durationSeconds = 8
+            )
+        )
+
+        val matches = repository.allMedia.first().filter { it.uriString == uri }
+        assertEquals(1, matches.size)
+        assertEquals("Finished recording", matches.single().title)
+        assertEquals(8, matches.single().durationSeconds)
+    }
 }
