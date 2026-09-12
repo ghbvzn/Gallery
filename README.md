@@ -26,10 +26,10 @@ to be committed.
 
 ## Current version
 
-Version 1.16.0 (version code 29) moves the photo aspect-ratio and video quality/FPS
-controls to the top camera bar. Setting changes now rebind the active CameraX use
-cases, photo ratios are applied to the saved JPEG crop, and selected video quality
-and frame-rate ranges are applied to the actual recording pipeline.
+Version 1.17.0 (version code 30) makes camera output settings observable and
+deterministic. The full photo frame is shown for visible 4:3/16:9 changes, saved
+media reports its actual pixel dimensions and FPS, and video FPS uses a compatible
+CameraX session configuration instead of the older best-effort hint API.
 
 ## License
 

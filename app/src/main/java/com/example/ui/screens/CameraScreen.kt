@@ -3,6 +3,8 @@ package com.example.ui.screens
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
@@ -20,12 +22,11 @@ import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.SessionConfig
 import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
-import androidx.camera.core.resolutionselector.ResolutionStrategy
-import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.FileOutputOptions
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
@@ -107,11 +108,16 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Observer
 import com.example.data.MediaType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 enum class CameraMode {
     PHOTO,
@@ -226,17 +232,7 @@ fun CameraScreen(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-            scaleType = PreviewView.ScaleType.FILL_CENTER
-        }
-    }
-
-    LaunchedEffect(cameraMode) {
-        // FILL_CENTER crops a 16:9 recording preview heavily on tall displays, making
-        // CameraX's real 1.0x state look zoomed in. Show the complete video frame.
-        previewView.scaleType = if (cameraMode == CameraMode.VIDEO) {
-            PreviewView.ScaleType.FIT_CENTER
-        } else {
-            PreviewView.ScaleType.FILL_CENTER
+            scaleType = PreviewView.ScaleType.FIT_CENTER
         }
     }
 
@@ -247,25 +243,17 @@ fun CameraScreen(
             .setResolutionSelector(
                 ResolutionSelector.Builder()
                     .setAspectRatioStrategy(photoAspectRatio.strategy)
-                    .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
                     .build()
             )
             .build()
             .also { it.setCropAspectRatio(photoAspectRatio.cropRatio) }
     }
-    val videoCapture = remember(videoResolution, selectedVideoFpsRange) {
+    val videoCapture = remember(videoResolution) {
         val requestedQuality = videoResolution.quality ?: Quality.HIGHEST
         val recorder = Recorder.Builder()
-            .setQualitySelector(
-                QualitySelector.from(
-                    requestedQuality,
-                    FallbackStrategy.higherQualityOrLowerThan(Quality.SD)
-                )
-            )
+            .setQualitySelector(QualitySelector.from(requestedQuality))
             .build()
-        VideoCapture.Builder(recorder).apply {
-            selectedVideoFpsRange?.let(::setTargetFrameRate)
-        }.build()
+        VideoCapture.Builder(recorder).build()
     }
 
     // Query camera provider and check capabilities once
@@ -306,7 +294,8 @@ fun CameraScreen(
         cameraMode,
         lifecycleOwner,
         imageCapture,
-        videoCapture
+        videoCapture,
+        selectedVideoFpsRange
     ) {
         val provider = cameraProvider ?: return@LaunchedEffect
         val cameraSelector = CameraSelector.Builder()
@@ -349,34 +338,36 @@ fun CameraScreen(
                     imageCapture
                 )
             } else {
-                provider.bindToLifecycle(
-                    lifecycleOwner,
-                    cameraSelector,
-                    preview,
-                    videoCapture
-                )
-            }
-            boundCamera?.cameraControl?.setZoomRatio(1f)
-
-            boundCamera?.cameraInfo?.let { cameraInfo ->
+                val cameraInfo = provider.getCameraInfo(cameraSelector)
                 val supportedQualities = Recorder.getVideoCapabilities(cameraInfo)
                     .getSupportedQualities(DynamicRange.SDR)
                 supportedVideoResolutions = listOf(VideoResolution.AUTO) +
                     VideoResolution.entries.drop(1).filter { it.quality in supportedQualities }
+                if (videoResolution !in supportedVideoResolutions) {
+                    videoResolution = VideoResolution.AUTO
+                    return@LaunchedEffect
+                }
 
-                supportedVideoFpsRanges = cameraInfo.supportedFrameRateRanges
+                val baseSession = SessionConfig.Builder(preview, videoCapture).build()
+                val compatibleFpsRanges = cameraInfo.getSupportedFrameRateRanges(baseSession)
                     .filter { it.upper in 24..240 }
                     .groupBy { it.upper }
                     .map { (_, ranges) -> ranges.minBy { it.upper - it.lower } }
                     .sortedBy { it.upper }
+                supportedVideoFpsRanges = compatibleFpsRanges
 
-                if (videoResolution !in supportedVideoResolutions) {
-                    videoResolution = VideoResolution.AUTO
-                }
-                if (selectedVideoFpsRange != null && selectedVideoFpsRange !in supportedVideoFpsRanges) {
+                if (selectedVideoFpsRange != null && selectedVideoFpsRange !in compatibleFpsRanges) {
                     selectedVideoFpsRange = null
+                    Toast.makeText(context, "That FPS is not available at this resolution. Using Auto.", Toast.LENGTH_SHORT).show()
+                    return@LaunchedEffect
                 }
+
+                val session = SessionConfig.Builder(preview, videoCapture).apply {
+                    selectedVideoFpsRange?.let(::setFrameRateRange)
+                }.build()
+                provider.bindToLifecycle(lifecycleOwner, cameraSelector, session)
             }
+            boundCamera?.cameraControl?.setZoomRatio(1f)
         } catch (exc: Exception) {
             Log.w("CameraScreen", "Camera binding failed: ${exc.message}")
             if (
@@ -771,13 +762,13 @@ fun CameraScreen(
                                             shutterFlashAlpha.snapTo(0.85f)
                                             shutterFlashAlpha.animateTo(0f, animationSpec = tween(250))
                                         }
-                                        Toast.makeText(context, "Photo captured & saved to Gallery", Toast.LENGTH_SHORT).show()
-                                        onMediaCaptured(
-                                            uri,
-                                            MediaType.PHOTO,
-                                            0,
-                                            "${photoAspectRatio.label} • Maximum quality"
-                                        )
+                                        scope.launch {
+                                            val actualDetails = withContext(Dispatchers.IO) {
+                                                readPhotoDetails(uri)
+                                            } ?: "${photoAspectRatio.label} photo"
+                                            Toast.makeText(context, "Saved $actualDetails", Toast.LENGTH_SHORT).show()
+                                            onMediaCaptured(uri, MediaType.PHOTO, 0, actualDetails)
+                                        }
                                     }
                                 )
                             } else {
@@ -797,14 +788,16 @@ fun CameraScreen(
                                         onRecordingFinalized = { uri, durationSec ->
                                             isRecording = false
                                             activeRecording = null
-                                            Toast.makeText(context, "Video saved to Gallery", Toast.LENGTH_SHORT).show()
-                                            val fpsLabel = selectedVideoFpsRange?.upper?.let { " • $it fps" }.orEmpty()
-                                            onMediaCaptured(
-                                                uri,
-                                                MediaType.VIDEO,
-                                                durationSec,
-                                                "${videoResolution.label}$fpsLabel"
-                                            )
+                                            scope.launch {
+                                                val actualDetails = withContext(Dispatchers.IO) {
+                                                    readVideoDetails(uri)
+                                                } ?: buildString {
+                                                    append(videoResolution.label)
+                                                    selectedVideoFpsRange?.let { append(" • ${it.fpsLabel()} fps") }
+                                                }
+                                                Toast.makeText(context, "Saved $actualDetails", Toast.LENGTH_LONG).show()
+                                                onMediaCaptured(uri, MediaType.VIDEO, durationSec, actualDetails)
+                                            }
                                         }
                                     )
                                     activeRecording = recording
@@ -932,6 +925,36 @@ private fun <T> CameraOptionMenu(
 
 private fun Range<Int>.fpsLabel(): String {
     return if (lower == upper) "$upper" else "$lower–$upper"
+}
+
+private fun readPhotoDetails(uri: Uri): String? {
+    val path = uri.path ?: return null
+    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, options)
+    if (options.outWidth <= 0 || options.outHeight <= 0) return null
+    val longSide = max(options.outWidth, options.outHeight)
+    val shortSide = min(options.outWidth, options.outHeight)
+    return "$longSide×$shortSide"
+}
+
+private fun readVideoDetails(uri: Uri): String? {
+    val path = uri.path ?: return null
+    return MediaMetadataRetriever().run {
+        try {
+            setDataSource(path)
+            val width = extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+            val height = extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
+            if (width == null || height == null) return@run null
+            val dimensions = "${max(width, height)}×${min(width, height)}"
+            val fps = extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
+                ?.toFloatOrNull()
+                ?.takeIf { it > 0f }
+                ?.roundToInt()
+            if (fps != null) "$dimensions • $fps fps" else dimensions
+        } finally {
+            release()
+        }
+    }
 }
 
 private fun takePhoto(
