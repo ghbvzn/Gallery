@@ -26,10 +26,10 @@ to be committed.
 
 ## Current version
 
-Version 1.18.0 (version code 31) saves camera captures through Android MediaStore
-under `DCIM/Gallery`, making them visible to Google Photos and other gallery apps.
-Photo Preview and ImageCapture now share one viewport so the saved image matches
-the frame shown at the moment of capture instead of appearing unexpectedly cut.
+Version 1.19.0 (version code 32) shows the complete photo and video frame in gallery
+grid cards instead of center-cropping media into the square thumbnail. This is most
+noticeable for wide 16:9 captures. Camera output continues to use Android MediaStore
+under `DCIM/Gallery` so captures are visible to Google Photos and other gallery apps.
 
 ## License
 

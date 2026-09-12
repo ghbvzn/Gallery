@@ -117,7 +117,9 @@ fun MediaCard(
             model = imageRequest,
             contentDescription = item.title,
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            // Keep the complete captured frame visible in the square grid cell.
+            // Cropping here was especially noticeable for 16:9 camera photos.
+            contentScale = ContentScale.Fit
         )
 
         // Semi-transparent primary scrim overlay when selected
