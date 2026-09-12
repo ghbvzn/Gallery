@@ -19,6 +19,7 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.video.FallbackStrategy
@@ -202,6 +203,16 @@ fun CameraScreen(
         }
     }
 
+    LaunchedEffect(cameraMode) {
+        // FILL_CENTER crops a 16:9 recording preview heavily on tall displays, making
+        // CameraX's real 1.0x state look zoomed in. Show the complete video frame.
+        previewView.scaleType = if (cameraMode == CameraMode.VIDEO) {
+            PreviewView.ScaleType.FIT_CENTER
+        } else {
+            PreviewView.ScaleType.FILL_CENTER
+        }
+    }
+
     val imageCapture = remember {
         ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
@@ -276,7 +287,18 @@ fun CameraScreen(
 
         try {
             provider.unbindAll()
-            val preview = Preview.Builder().build().also {
+            val previewAspectRatio = if (cameraMode == CameraMode.VIDEO) {
+                AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY
+            } else {
+                AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
+            }
+            val preview = Preview.Builder()
+                .setResolutionSelector(
+                    ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(previewAspectRatio)
+                        .build()
+                )
+                .build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
 

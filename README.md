@@ -26,10 +26,10 @@ to be committed.
 
 ## Current version
 
-Version 1.13.0 (version code 26) adds Restore actions for individual and selected
-items in the Bin. It removes Gemini tagging and its API-key/cloud dependencies,
-keeping manual tags entirely on-device. The app now opens its cached library
-immediately and scans only on first run, manual refresh, or device-media changes.
+Version 1.14.0 (version code 27) shows the complete uncropped video frame so
+CameraX's 1.0x preview matches the recorded field of view. Camera gestures are
+isolated from the gallery behind them, and trash/delete/restore operations update
+the cached library immediately without redundant full-device rescans.
 
 ## License
 

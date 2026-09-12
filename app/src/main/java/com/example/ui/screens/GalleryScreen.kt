@@ -118,6 +118,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.MediaType
@@ -1150,12 +1152,24 @@ fun GalleryScreen(
 
     // In-App Camera Screen
     if (uiState.showCameraScreen) {
-        CameraScreen(
-            onClose = { viewModel.closeCamera() },
-            onMediaCaptured = { uri, type, durationSec, res ->
-                viewModel.onMediaCaptured(uri, type, durationSec, res)
-            }
-        )
+        // A dedicated full-screen window prevents camera focus gestures from ever
+        // reaching gallery cards underneath the preview.
+        Dialog(
+            onDismissRequest = { viewModel.closeCamera() },
+            properties = DialogProperties(
+                dismissOnBackPress = true,
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            CameraScreen(
+                onClose = { viewModel.closeCamera() },
+                onMediaCaptured = { uri, type, durationSec, res ->
+                    viewModel.onMediaCaptured(uri, type, durationSec, res)
+                }
+            )
+        }
     }
 }
 

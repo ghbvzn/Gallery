@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
 import java.io.File
@@ -98,6 +99,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val deviceMediaScanner = DeviceMediaScanner(application)
     private val _settings = MutableStateFlow(ViewSettings())
     private var observerRefreshJob: Job? = null
+    private var suppressMediaObserverUntilMillis = 0L
     private val mediaStoreObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) {
             scheduleObservedMediaRefresh()
@@ -133,6 +135,13 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     private fun scheduleObservedMediaRefresh() {
         if (!_settings.value.hasMediaPermission) return
+        if (SystemClock.elapsedRealtime() < suppressMediaObserverUntilMillis) return
+        val pendingOperation = _settings.value.let {
+            it.pendingTrashItemIds.isNotEmpty() ||
+                it.pendingPermanentDeleteItemIds.isNotEmpty() ||
+                it.pendingRestoreItemIds.isNotEmpty()
+        }
+        if (pendingOperation) return
         observerRefreshJob?.cancel()
         observerRefreshJob = viewModelScope.launch {
             // Cameras and editors often emit several changes for one save.
@@ -517,7 +526,15 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun openCamera() {
-        _settings.update { it.copy(showCameraScreen = true) }
+        _settings.update {
+            it.copy(
+                showCameraScreen = true,
+                showAddDialog = false,
+                activeItem = null,
+                editingItem = null,
+                showSettingsDialog = false
+            )
+        }
     }
 
     fun closeCamera() {
@@ -730,11 +747,11 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     fun onRestoreRequestResult(approved: Boolean) {
         val pendingIds = _settings.value.pendingRestoreItemIds
+        if (approved && pendingIds.isNotEmpty()) suppressAppInitiatedMediaObserver()
         _settings.update { it.copy(pendingRestoreItemIds = emptySet()) }
         if (!approved || pendingIds.isEmpty()) return
         viewModelScope.launch {
             restoreDatabaseItems(pendingIds)
-            refreshDeviceMedia()
         }
     }
 
@@ -792,11 +809,11 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     fun onTrashRequestResult(approved: Boolean) {
         val pendingIds = _settings.value.pendingTrashItemIds
+        if (approved && pendingIds.isNotEmpty()) suppressAppInitiatedMediaObserver()
         _settings.update { it.copy(pendingTrashItemIds = emptySet()) }
         if (!approved || pendingIds.isEmpty()) return
         viewModelScope.launch {
             moveItemsToBin(pendingIds)
-            refreshDeviceMedia()
         }
     }
 
@@ -830,16 +847,17 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     fun onPermanentDeleteRequestResult(approved: Boolean) {
         val pendingIds = _settings.value.pendingPermanentDeleteItemIds
+        if (approved && pendingIds.isNotEmpty()) suppressAppInitiatedMediaObserver()
         _settings.update { it.copy(pendingPermanentDeleteItemIds = emptySet()) }
         if (!approved || pendingIds.isEmpty()) return
         viewModelScope.launch {
             finalizeDeletedItems(pendingIds)
-            refreshDeviceMedia()
         }
     }
 
     private suspend fun permanentlyDeleteDirectItems(items: List<MediaItem>) {
         if (items.isEmpty()) return
+        suppressAppInitiatedMediaObserver()
         val resolver = getApplication<Application>().contentResolver
         val deletedIds = withContext(Dispatchers.IO) {
             items.mapNotNull { item ->
@@ -876,6 +894,13 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     private fun MediaItem.isMediaStoreItem(): Boolean {
         return uriString.startsWith("content://media/")
+    }
+
+    private fun suppressAppInitiatedMediaObserver() {
+        // MediaStore emits after its confirmation activity returns. The database is
+        // already updated below, so rescanning the entire library would be duplicate work.
+        suppressMediaObserverUntilMillis = SystemClock.elapsedRealtime() + 5_000L
+        observerRefreshJob?.cancel()
     }
 
     fun onPermissionResult(granted: Boolean, forceRefresh: Boolean = false) {
