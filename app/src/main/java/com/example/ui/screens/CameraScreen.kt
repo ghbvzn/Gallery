@@ -1,16 +1,20 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Environment
+import android.os.Build
+import android.provider.MediaStore
 import android.util.Log
 import android.util.Range
 import android.util.Rational
 import android.view.ViewGroup
+import android.view.Surface as AndroidSurface
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -23,11 +27,13 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.core.SessionConfig
+import androidx.camera.core.UseCaseGroup
+import androidx.camera.core.ViewPort
 import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
-import androidx.camera.video.FileOutputOptions
+import androidx.camera.video.MediaStoreOutputOptions
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
 import androidx.camera.video.Recorder
@@ -246,7 +252,6 @@ fun CameraScreen(
                     .build()
             )
             .build()
-            .also { it.setCropAspectRatio(photoAspectRatio.cropRatio) }
     }
     val videoCapture = remember(videoResolution) {
         val requestedQuality = videoResolution.quality ?: Quality.HIGHEST
@@ -315,12 +320,15 @@ fun CameraScreen(
 
         try {
             provider.unbindAll()
+            val targetRotation = previewView.display?.rotation ?: AndroidSurface.ROTATION_0
+            imageCapture.targetRotation = targetRotation
             val previewAspectRatio = if (cameraMode == CameraMode.VIDEO) {
                 AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY
             } else {
                 photoAspectRatio.strategy
             }
             val preview = Preview.Builder()
+                .setTargetRotation(targetRotation)
                 .setResolutionSelector(
                     ResolutionSelector.Builder()
                         .setAspectRatioStrategy(previewAspectRatio)
@@ -331,11 +339,19 @@ fun CameraScreen(
             }
 
             boundCamera = if (cameraMode == CameraMode.PHOTO) {
+                val photoGroup = UseCaseGroup.Builder()
+                    .setViewPort(
+                        ViewPort.Builder(photoAspectRatio.cropRatio, targetRotation)
+                            .setScaleType(ViewPort.FILL_CENTER)
+                            .build()
+                    )
+                    .addUseCase(preview)
+                    .addUseCase(imageCapture)
+                    .build()
                 provider.bindToLifecycle(
                     lifecycleOwner,
                     cameraSelector,
-                    preview,
-                    imageCapture
+                    photoGroup
                 )
             } else {
                 val cameraInfo = provider.getCameraInfo(cameraSelector)
@@ -348,7 +364,12 @@ fun CameraScreen(
                     return@LaunchedEffect
                 }
 
-                val baseSession = SessionConfig.Builder(preview, videoCapture).build()
+                val videoViewPort = ViewPort.Builder(Rational(16, 9), targetRotation)
+                    .setScaleType(ViewPort.FILL_CENTER)
+                    .build()
+                val baseSession = SessionConfig.Builder(preview, videoCapture)
+                    .setViewPort(videoViewPort)
+                    .build()
                 val compatibleFpsRanges = cameraInfo.getSupportedFrameRateRanges(baseSession)
                     .filter { it.upper in 24..240 }
                     .groupBy { it.upper }
@@ -363,6 +384,7 @@ fun CameraScreen(
                 }
 
                 val session = SessionConfig.Builder(preview, videoCapture).apply {
+                    setViewPort(videoViewPort)
                     selectedVideoFpsRange?.let(::setFrameRateRange)
                 }.build()
                 provider.bindToLifecycle(lifecycleOwner, cameraSelector, session)
@@ -764,7 +786,7 @@ fun CameraScreen(
                                         }
                                         scope.launch {
                                             val actualDetails = withContext(Dispatchers.IO) {
-                                                readPhotoDetails(uri)
+                                                readPhotoDetails(context, uri)
                                             } ?: "${photoAspectRatio.label} photo"
                                             Toast.makeText(context, "Saved $actualDetails", Toast.LENGTH_SHORT).show()
                                             onMediaCaptured(uri, MediaType.PHOTO, 0, actualDetails)
@@ -790,7 +812,7 @@ fun CameraScreen(
                                             activeRecording = null
                                             scope.launch {
                                                 val actualDetails = withContext(Dispatchers.IO) {
-                                                    readVideoDetails(uri)
+                                                    readVideoDetails(context, uri)
                                                 } ?: buildString {
                                                     append(videoResolution.label)
                                                     selectedVideoFpsRange?.let { append(" • ${it.fpsLabel()} fps") }
@@ -927,21 +949,21 @@ private fun Range<Int>.fpsLabel(): String {
     return if (lower == upper) "$upper" else "$lower–$upper"
 }
 
-private fun readPhotoDetails(uri: Uri): String? {
-    val path = uri.path ?: return null
+private fun readPhotoDetails(context: Context, uri: Uri): String? {
     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(path, options)
+    context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input, null, options)
+    } ?: return null
     if (options.outWidth <= 0 || options.outHeight <= 0) return null
     val longSide = max(options.outWidth, options.outHeight)
     val shortSide = min(options.outWidth, options.outHeight)
     return "$longSide×$shortSide"
 }
 
-private fun readVideoDetails(uri: Uri): String? {
-    val path = uri.path ?: return null
+private fun readVideoDetails(context: Context, uri: Uri): String? {
     return MediaMetadataRetriever().run {
         try {
-            setDataSource(path)
+            setDataSource(context, uri)
             val width = extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
             val height = extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
             if (width == null || height == null) return@run null
@@ -962,17 +984,25 @@ private fun takePhoto(
     imageCapture: ImageCapture,
     onCaptured: (Uri) -> Unit
 ) {
-    val photoDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: context.filesDir
-    val photoFile = File(photoDir, "IMG_${System.currentTimeMillis()}.jpg")
-    val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+    val displayName = "IMG_${System.currentTimeMillis()}.jpg"
+    val contentValues = createPublicMediaValues(
+        displayName = displayName,
+        mimeType = "image/jpeg",
+        mediaType = MediaType.PHOTO
+    )
+    val outputOptions = ImageCapture.OutputFileOptions.Builder(
+        context.contentResolver,
+        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+        contentValues
+    ).build()
 
     imageCapture.takePicture(
         outputOptions,
         ContextCompat.getMainExecutor(context),
         object : ImageCapture.OnImageSavedCallback {
             override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                val savedUri = outputFileResults.savedUri ?: Uri.fromFile(photoFile)
-                onCaptured(savedUri)
+                outputFileResults.savedUri?.let(onCaptured)
+                    ?: Toast.makeText(context, "Photo saved, but its MediaStore URI was unavailable", Toast.LENGTH_SHORT).show()
             }
 
             override fun onError(exception: ImageCaptureException) {
@@ -990,11 +1020,18 @@ private fun startVideoRecording(
     onRecordingStarted: () -> Unit,
     onRecordingFinalized: (Uri, Int) -> Unit
 ): Recording {
-    val videoDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir
-    val videoFile = File(videoDir, "VID_${System.currentTimeMillis()}.mp4")
-    val fileOutputOptions = FileOutputOptions.Builder(videoFile).build()
+    val displayName = "VID_${System.currentTimeMillis()}.mp4"
+    val contentValues = createPublicMediaValues(
+        displayName = displayName,
+        mimeType = "video/mp4",
+        mediaType = MediaType.VIDEO
+    )
+    val outputOptions = MediaStoreOutputOptions.Builder(
+        context.contentResolver,
+        MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+    ).setContentValues(contentValues).build()
 
-    val pendingRecording = videoCapture.output.prepareRecording(context, fileOutputOptions)
+    val pendingRecording = videoCapture.output.prepareRecording(context, outputOptions)
 
     if (hasAudioPermission && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
         pendingRecording.withAudioEnabled()
@@ -1010,13 +1047,41 @@ private fun startVideoRecording(
             is VideoRecordEvent.Finalize -> {
                 if (!recordEvent.hasError()) {
                     val durationSec = ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceAtLeast(1)
-                    val savedUri = recordEvent.outputResults.outputUri.takeIf { it != Uri.EMPTY } ?: Uri.fromFile(videoFile)
-                    onRecordingFinalized(savedUri, durationSec)
+                    val savedUri = recordEvent.outputResults.outputUri
+                    if (savedUri != Uri.EMPTY) {
+                        onRecordingFinalized(savedUri, durationSec)
+                    } else {
+                        Toast.makeText(context, "Video saved, but its MediaStore URI was unavailable", Toast.LENGTH_SHORT).show()
+                    }
                 } else {
                     Log.w("CameraScreen", "Video recording error code: ${recordEvent.error}")
                     Toast.makeText(context, "Video recording ended with error", Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+    }
+}
+
+@Suppress("DEPRECATION")
+private fun createPublicMediaValues(
+    displayName: String,
+    mimeType: String,
+    mediaType: MediaType
+): ContentValues {
+    return ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DCIM}/Gallery")
+        } else {
+            val publicDir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
+                "Gallery"
+            ).apply { mkdirs() }
+            put(MediaStore.MediaColumns.DATA, File(publicDir, displayName).absolutePath)
+        }
+        if (mediaType == MediaType.PHOTO) {
+            put(MediaStore.Images.Media.DATE_TAKEN, System.currentTimeMillis())
         }
     }
 }

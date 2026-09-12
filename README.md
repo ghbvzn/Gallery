@@ -26,10 +26,10 @@ to be committed.
 
 ## Current version
 
-Version 1.17.0 (version code 30) makes camera output settings observable and
-deterministic. The full photo frame is shown for visible 4:3/16:9 changes, saved
-media reports its actual pixel dimensions and FPS, and video FPS uses a compatible
-CameraX session configuration instead of the older best-effort hint API.
+Version 1.18.0 (version code 31) saves camera captures through Android MediaStore
+under `DCIM/Gallery`, making them visible to Google Photos and other gallery apps.
+Photo Preview and ImageCapture now share one viewport so the saved image matches
+the frame shown at the moment of capture instead of appearing unexpectedly cut.
 
 ## License
 
