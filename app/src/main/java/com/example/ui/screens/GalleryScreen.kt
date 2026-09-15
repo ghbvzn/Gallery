@@ -14,6 +14,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,8 +51,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -111,8 +115,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -153,9 +155,6 @@ import com.example.ui.components.SettingsDialog
 import com.example.ui.components.TimelineHeader
 import com.example.ui.theme.RoseFavorite
 import com.example.ui.util.DateTimeUtils
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * Natural two-finger pinch-to-zoom modifier.
@@ -222,21 +221,13 @@ fun GalleryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var isAddMediaExpanded by rememberSaveable { mutableStateOf(true) }
-    var isTimelineScrollbarExpanded by rememberSaveable { mutableStateOf(true) }
-    var isGalleryAutoCollapsed by remember { mutableStateOf(false) }
-    var restoreControlsJob by remember { mutableStateOf<Job?>(null) }
-    val autoCollapseScope = rememberCoroutineScope()
-    val galleryScrollConnection = remember(autoCollapseScope) {
+    var areGalleryControlsVisible by remember { mutableStateOf(true) }
+    val galleryScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (available.y != 0f) {
-                    isGalleryAutoCollapsed = true
-                    restoreControlsJob?.cancel()
-                    restoreControlsJob = autoCollapseScope.launch {
-                        delay(900)
-                        isGalleryAutoCollapsed = false
-                    }
+                when {
+                    available.y < -0.5f -> areGalleryControlsVisible = false
+                    available.y > 0.5f -> areGalleryControlsVisible = true
                 }
                 return Offset.Zero
             }
@@ -939,41 +930,20 @@ fun GalleryScreen(
         },
         floatingActionButton = {
             if (!uiState.isSelectionMode) {
-                Row(
-                    modifier = Modifier.navigationBarsPadding(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                AnimatedVisibility(
+                    visible = areGalleryControlsVisible,
+                    enter = fadeIn() + scaleIn(initialScale = 0.82f) +
+                        slideInVertically(initialOffsetY = { it / 2 }),
+                    exit = fadeOut() + scaleOut(targetScale = 0.82f) +
+                        slideOutVertically(targetOffsetY = { it / 2 })
                 ) {
-                    AnimatedVisibility(
-                        visible = !isGalleryAutoCollapsed,
-                        enter = fadeIn(),
-                        exit = fadeOut()
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            tonalElevation = 4.dp,
-                            shadowElevation = 3.dp
-                        ) {
-                            IconButton(
-                                onClick = { isAddMediaExpanded = !isAddMediaExpanded },
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .testTag("add_media_collapse_toggle")
-                            ) {
-                                Icon(
-                                    imageVector = if (isAddMediaExpanded) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                    contentDescription = if (isAddMediaExpanded) "Collapse Add Media" else "Expand Add Media"
-                                )
-                            }
-                        }
-                    }
                     ExtendedFloatingActionButton(
                         onClick = { viewModel.showAddDialog(true) },
                         icon = { Icon(Icons.Default.Add, contentDescription = "Add Media") },
                         text = { Text("Add Media") },
-                        expanded = isAddMediaExpanded && !isGalleryAutoCollapsed,
-                        modifier = Modifier.testTag("add_media_fab")
+                        modifier = Modifier
+                            .navigationBarsPadding()
+                            .testTag("add_media_fab")
                     )
                 }
             }
@@ -1075,16 +1045,7 @@ fun GalleryScreen(
                     uiState.viewMode == GalleryViewMode.TIMELINE -> {
                         TimelineContent(
                             uiState = uiState,
-                            isScrollbarExpanded = isTimelineScrollbarExpanded,
-                            isAutoCollapsed = isGalleryAutoCollapsed,
-                            onToggleScrollbar = {
-                                if (isGalleryAutoCollapsed) {
-                                    isGalleryAutoCollapsed = false
-                                    isTimelineScrollbarExpanded = true
-                                } else {
-                                    isTimelineScrollbarExpanded = !isTimelineScrollbarExpanded
-                                }
-                            },
+                            areGalleryControlsVisible = areGalleryControlsVisible,
                             onGrantPermission = { permissionLauncher.launch(mediaPermissions) },
                             onRefreshMedia = { viewModel.refreshDeviceMedia() },
                             onMediaClick = { viewModel.openDetailViewer(it) },
@@ -1248,9 +1209,7 @@ fun GalleryScreen(
 @Composable
 private fun TimelineContent(
     uiState: GalleryUiState,
-    isScrollbarExpanded: Boolean,
-    isAutoCollapsed: Boolean,
-    onToggleScrollbar: () -> Unit,
+    areGalleryControlsVisible: Boolean,
     onGrantPermission: () -> Unit,
     onRefreshMedia: () -> Unit,
     onMediaClick: (com.example.data.MediaItem) -> Unit,
@@ -1361,40 +1320,22 @@ private fun TimelineContent(
             }
         }
 
-        val showScrollbar = isScrollbarExpanded && !isAutoCollapsed
-        if (showScrollbar) {
-            FastGridScrollbar(
-                gridState = gridState,
-                totalItems = totalItems,
-                labelProvider = { index ->
-                    indexToGroupTitle.getOrElse(index) { "" }
-                },
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 6.dp, top = 48.dp, bottom = 84.dp)
-            )
-        }
-
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
-            tonalElevation = 3.dp,
-            shadowElevation = 2.dp,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(end = 6.dp, top = 8.dp)
+        AnimatedVisibility(
+            visible = areGalleryControlsVisible,
+            enter = fadeIn() + slideInHorizontally(initialOffsetX = { it }),
+            exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it }),
+            modifier = Modifier.fillMaxSize()
         ) {
-            IconButton(
-                onClick = onToggleScrollbar,
-                modifier = Modifier
-                    .size(32.dp)
-                    .testTag("timeline_scrollbar_collapse_toggle")
-            ) {
-                Icon(
-                    imageVector = if (showScrollbar) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                    contentDescription = if (showScrollbar) "Collapse scrollbar" else "Expand scrollbar",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
+            Box(modifier = Modifier.fillMaxSize()) {
+                FastGridScrollbar(
+                    gridState = gridState,
+                    totalItems = totalItems,
+                    labelProvider = { index ->
+                        indexToGroupTitle.getOrElse(index) { "" }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 6.dp, top = 12.dp, bottom = 84.dp)
                 )
             }
         }
