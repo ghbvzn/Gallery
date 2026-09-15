@@ -24,16 +24,27 @@ class GalleryRepository(private val mediaDao: MediaDao) {
             val scannedUriSet = scanResult.items.map { it.uriString }.toSet()
             val newItems = scanResult.items.filter { it.uriString !in existingUriSet }
             val staleIds = existing.asSequence()
-                .filter { it.type in scanResult.fullyScannedTypes }
                 .filter { it.isDeviceMediaStoreItem() }
                 .filterNot { it.isTrashed }
                 .filter { it.uriString !in scannedUriSet }
+                .filter {
+                    it.type in scanResult.fullyScannedTypes ||
+                        it.uriString in scanResult.confirmedMissingUris
+                }
                 .map { it.id }
                 .toList()
 
             // One Room transaction means one coherent UI update for additions/removals.
             mediaDao.applyDeviceMediaSync(newItems, staleIds, scanResult.items)
         }
+    }
+
+    suspend fun getMediaSnapshot(): List<MediaItem> = withContext(Dispatchers.IO) {
+        mediaDao.getAllMediaList()
+    }
+
+    suspend fun removeConfirmedMissingUris(uriStrings: Set<String>) = withContext(Dispatchers.IO) {
+        if (uriStrings.isNotEmpty()) mediaDao.deleteActiveByUris(uriStrings.toList())
     }
 
     private fun MediaItem.isDeviceMediaStoreItem(): Boolean {

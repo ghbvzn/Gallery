@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.GalleryDatabase
 import com.example.data.GalleryRepository
+import com.example.data.DeviceMediaScanResult
 import com.example.data.MediaItem
 import com.example.data.MediaType
 import kotlinx.coroutines.flow.first
@@ -84,5 +85,29 @@ class GalleryTaggingRobolectricTest {
         assertEquals(1, matches.size)
         assertEquals("Finished recording", matches.single().title)
         assertEquals(8, matches.single().durationSeconds)
+    }
+
+    @Test
+    fun testConfirmedMissingUriIsRemovedAfterLimitedAccessScan() = runBlocking {
+        val missingUri = "content://media/external/images/media/123456789"
+        repository.insert(
+            MediaItem(
+                title = "Deleted elsewhere",
+                uriString = missingUri,
+                type = MediaType.PHOTO,
+                dateEpochMillis = 1L,
+                locationName = ""
+            )
+        )
+
+        repository.syncDeviceMedia(
+            DeviceMediaScanResult(
+                items = emptyList(),
+                fullyScannedTypes = emptySet(),
+                confirmedMissingUris = setOf(missingUri)
+            )
+        )
+
+        assertTrue(repository.allMedia.first().none { it.uriString == missingUri })
     }
 }

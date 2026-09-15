@@ -35,6 +35,9 @@ interface MediaDao {
     @Query("DELETE FROM media_items WHERE uriString = :uriString AND id != :keepId")
     suspend fun deleteOtherRowsForUri(uriString: String, keepId: Long)
 
+    @Query("DELETE FROM media_items WHERE uriString IN (:uriStrings) AND isTrashed = 0")
+    suspend fun deleteActiveByUris(uriStrings: List<String>)
+
     @Query("SELECT DISTINCT locationName FROM media_items WHERE locationName != '' ORDER BY locationName ASC")
     fun getAllLocations(): Flow<List<String>>
 

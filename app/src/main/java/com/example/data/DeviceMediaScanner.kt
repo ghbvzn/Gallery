@@ -18,7 +18,9 @@ import java.util.Locale
 data class DeviceMediaScanResult(
     val items: List<MediaItem>,
     /** Media types for which the scan had unrestricted library access. */
-    val fullyScannedTypes: Set<MediaType>
+    val fullyScannedTypes: Set<MediaType>,
+    /** Cached MediaStore rows individually confirmed to no longer exist. */
+    val confirmedMissingUris: Set<String> = emptySet()
 )
 
 class DeviceMediaScanner(private val context: Context) {
@@ -33,7 +35,14 @@ class DeviceMediaScanner(private val context: Context) {
         return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
 
-    suspend fun scanDeviceMedia(): DeviceMediaScanResult = withContext(Dispatchers.IO) {
+    suspend fun findConfirmedMissingUris(uriStrings: Collection<String>): Set<String> =
+        withContext(Dispatchers.IO) {
+            uriStrings.filter { isDefinitelyMissing(it) }.toSet()
+        }
+
+    suspend fun scanDeviceMedia(
+        cachedItems: List<MediaItem> = emptyList()
+    ): DeviceMediaScanResult = withContext(Dispatchers.IO) {
         val hasLocationMetadataAccess = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
                 hasPermission(Manifest.permission.ACCESS_MEDIA_LOCATION)
         if (hasLocationMetadataAccess && !hadLocationMetadataAccess) {
@@ -53,15 +62,13 @@ class DeviceMediaScanner(private val context: Context) {
 
         val canReadImages = legacyAccess || fullImageAccess || selectedMediaAccess
         val canReadVideos = legacyAccess || fullVideoAccess || selectedMediaAccess
-        val fullyScannedTypes = buildSet {
-            if (legacyAccess || fullImageAccess) add(MediaType.PHOTO)
-            if (legacyAccess || fullVideoAccess) add(MediaType.VIDEO)
-        }
+        val fullyScannedTypes = mutableSetOf<MediaType>()
 
         val mediaList = mutableListOf<MediaItem>()
         if (canReadImages) {
             try {
                 mediaList.addAll(queryImages())
+                if (legacyAccess || fullImageAccess) fullyScannedTypes.add(MediaType.PHOTO)
             } catch (e: Exception) {
                 Log.w("DeviceMediaScanner", "Could not query device images: ${e.message}")
             }
@@ -69,14 +76,44 @@ class DeviceMediaScanner(private val context: Context) {
         if (canReadVideos) {
             try {
                 mediaList.addAll(queryVideos())
+                if (legacyAccess || fullVideoAccess) fullyScannedTypes.add(MediaType.VIDEO)
             } catch (e: Exception) {
                 Log.w("DeviceMediaScanner", "Could not query device videos: ${e.message}")
             }
         }
+        val scannedUris = mediaList.asSequence().map { it.uriString }.toSet()
+        val confirmedMissingUris = cachedItems.asSequence()
+            .filter { it.uriString.startsWith("content://media/external/") }
+            .filter { it.uriString !in scannedUris }
+            .filter { it.type !in fullyScannedTypes }
+            .map { it.uriString }
+            .filter { isDefinitelyMissing(it) }
+            .toSet()
         DeviceMediaScanResult(
             items = mediaList.sortedByDescending { it.dateEpochMillis },
-            fullyScannedTypes = fullyScannedTypes
+            fullyScannedTypes = fullyScannedTypes,
+            confirmedMissingUris = confirmedMissingUris
         )
+    }
+
+    /**
+     * Returns true only when MediaStore answers successfully and has no row for the URI.
+     * Permission failures remain cached because they do not prove that the file was deleted.
+     */
+    private fun isDefinitelyMissing(uriString: String): Boolean {
+        return try {
+            context.contentResolver.query(
+                Uri.parse(uriString),
+                arrayOf(MediaStore.MediaColumns._ID),
+                null,
+                null,
+                null
+            )?.use { cursor -> !cursor.moveToFirst() } ?: false
+        } catch (_: SecurityException) {
+            false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private suspend fun queryImages(): List<MediaItem> {

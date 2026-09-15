@@ -99,6 +99,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val deviceMediaScanner = DeviceMediaScanner(application)
     private val _settings = MutableStateFlow(ViewSettings())
     private var observerRefreshJob: Job? = null
+    private val observedMediaItemUris = mutableSetOf<String>()
     private var suppressMediaObserverUntilMillis = 0L
     private val mediaStoreObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) {
@@ -106,7 +107,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
 
         override fun onChange(selfChange: Boolean, uri: Uri?) {
-            scheduleObservedMediaRefresh()
+            scheduleObservedMediaRefresh(uri)
         }
     }
 
@@ -133,7 +134,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun scheduleObservedMediaRefresh() {
+    private fun scheduleObservedMediaRefresh(changedUri: Uri? = null) {
         if (!_settings.value.hasMediaPermission) return
         if (SystemClock.elapsedRealtime() < suppressMediaObserverUntilMillis) return
         val pendingOperation = _settings.value.let {
@@ -142,10 +143,19 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 it.pendingRestoreItemIds.isNotEmpty()
         }
         if (pendingOperation) return
+        changedUri?.toString()
+            ?.takeIf { it.matches(Regex("content://media/external/(images|video)/media/\\d+")) }
+            ?.let(observedMediaItemUris::add)
         observerRefreshJob?.cancel()
         observerRefreshJob = viewModelScope.launch {
             // Cameras and editors often emit several changes for one save.
             delay(750)
+            val changedItemUris = observedMediaItemUris.toSet()
+            observedMediaItemUris.clear()
+            if (changedItemUris.isNotEmpty()) {
+                val missingUris = deviceMediaScanner.findConfirmedMissingUris(changedItemUris)
+                repository.removeConfirmedMissingUris(missingUris)
+            }
             refreshDeviceMedia()
         }
     }
@@ -930,7 +940,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             try {
                 withContext(Dispatchers.IO) {
                     repository.cleanupDemoData()
-                    val scanned = deviceMediaScanner.scanDeviceMedia()
+                    val cachedItems = repository.getMediaSnapshot()
+                    val scanned = deviceMediaScanner.scanDeviceMedia(cachedItems)
                     repository.syncDeviceMedia(scanned)
                 }
             } catch (e: Exception) {

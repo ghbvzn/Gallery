@@ -26,7 +26,7 @@ to be committed.
 
 ## Current version
 
-Version 1.26.0 (version code 39) keeps only the current release information here. Add Media now smoothly contracts to its plus icon whenever the timeline scrollbar is used, stays compact throughout scrollbar activity, and expands again after a short idle delay.
+Version 1.27.0 (version code 40) removes stale blank thumbnails when media is deleted by another gallery, including on Android's limited photo-access mode. Failed or permission-blocked MediaStore checks are kept safely instead of being mistaken for deleted files.
 
 ## License
 
