@@ -71,6 +71,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashAuto
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
@@ -92,6 +94,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -208,6 +211,7 @@ fun CameraScreen(
     var selectedVideoFpsRange by remember { mutableStateOf<Range<Int>?>(null) }
     var supportedVideoResolutions by remember { mutableStateOf(listOf(VideoResolution.AUTO)) }
     var supportedVideoFpsRanges by remember { mutableStateOf(emptyList<Range<Int>>()) }
+    var isZoomUiExpanded by rememberSaveable { mutableStateOf(true) }
 
     // Video Recording state
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
@@ -632,38 +636,77 @@ fun CameraScreen(
         ) {
 
             if (!isRecording && maxZoomRatio > minZoomRatio) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 32.dp)
-                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(24.dp))
-                        .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = String.format(Locale.getDefault(), "%.1fx", zoomRatio),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        modifier = Modifier.width(44.dp)
-                    )
-                    Slider(
-                        value = linearZoom,
-                        onValueChange = { value ->
-                            boundCamera?.cameraControl?.setLinearZoom(value.coerceIn(0f, 1f))
-                        },
-                        valueRange = 0f..1f,
+                if (isZoomUiExpanded) {
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .testTag("camera_zoom_slider")
-                    )
-                    Text(
-                        text = String.format(Locale.getDefault(), "%.1fx", maxZoomRatio),
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 12.sp,
-                        textAlign = TextAlign.End,
-                        modifier = Modifier.width(44.dp)
-                    )
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp)
+                            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(24.dp))
+                            .padding(start = 14.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = String.format(Locale.getDefault(), "%.1fx", zoomRatio),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            modifier = Modifier.width(44.dp)
+                        )
+                        Slider(
+                            value = linearZoom,
+                            onValueChange = { value ->
+                                boundCamera?.cameraControl?.setLinearZoom(value.coerceIn(0f, 1f))
+                            },
+                            valueRange = 0f..1f,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("camera_zoom_slider")
+                        )
+                        Text(
+                            text = String.format(Locale.getDefault(), "%.1fx", maxZoomRatio),
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.width(40.dp)
+                        )
+                        IconButton(
+                            onClick = { isZoomUiExpanded = false },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("camera_zoom_collapse")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Collapse zoom controls",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                } else {
+                    Surface(
+                        onClick = { isZoomUiExpanded = true },
+                        shape = RoundedCornerShape(22.dp),
+                        color = Color.Black.copy(alpha = 0.6f),
+                        modifier = Modifier.testTag("camera_zoom_expand")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(start = 16.dp, end = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = String.format(Locale.getDefault(), "%.1fx", zoomRatio),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Expand zoom controls",
+                                tint = Color.White,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             }

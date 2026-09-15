@@ -45,6 +45,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -106,6 +108,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -211,6 +214,8 @@ fun GalleryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var isAddMediaExpanded by rememberSaveable { mutableStateOf(true) }
+    var isTimelineScrollbarExpanded by rememberSaveable { mutableStateOf(true) }
 
     val mediaPermissions = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -906,14 +911,37 @@ fun GalleryScreen(
         },
         floatingActionButton = {
             if (!uiState.isSelectionMode) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.showAddDialog(true) },
-                    icon = { Icon(Icons.Default.Add, contentDescription = "Add Media") },
-                    text = { Text("Add Media") },
-                    modifier = Modifier
-                        .navigationBarsPadding()
-                        .testTag("add_media_fab")
-                )
+                Row(
+                    modifier = Modifier.navigationBarsPadding(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 4.dp,
+                        shadowElevation = 3.dp
+                    ) {
+                        IconButton(
+                            onClick = { isAddMediaExpanded = !isAddMediaExpanded },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("add_media_collapse_toggle")
+                        ) {
+                            Icon(
+                                imageVector = if (isAddMediaExpanded) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                contentDescription = if (isAddMediaExpanded) "Collapse Add Media" else "Expand Add Media"
+                            )
+                        }
+                    }
+                    ExtendedFloatingActionButton(
+                        onClick = { viewModel.showAddDialog(true) },
+                        icon = { Icon(Icons.Default.Add, contentDescription = "Add Media") },
+                        text = { Text("Add Media") },
+                        expanded = isAddMediaExpanded,
+                        modifier = Modifier.testTag("add_media_fab")
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -1013,6 +1041,10 @@ fun GalleryScreen(
                     uiState.viewMode == GalleryViewMode.TIMELINE -> {
                         TimelineContent(
                             uiState = uiState,
+                            isScrollbarExpanded = isTimelineScrollbarExpanded,
+                            onToggleScrollbar = {
+                                isTimelineScrollbarExpanded = !isTimelineScrollbarExpanded
+                            },
                             onGrantPermission = { permissionLauncher.launch(mediaPermissions) },
                             onRefreshMedia = { viewModel.refreshDeviceMedia() },
                             onMediaClick = { viewModel.openDetailViewer(it) },
@@ -1176,6 +1208,8 @@ fun GalleryScreen(
 @Composable
 private fun TimelineContent(
     uiState: GalleryUiState,
+    isScrollbarExpanded: Boolean,
+    onToggleScrollbar: () -> Unit,
     onGrantPermission: () -> Unit,
     onRefreshMedia: () -> Unit,
     onMediaClick: (com.example.data.MediaItem) -> Unit,
@@ -1286,16 +1320,42 @@ private fun TimelineContent(
             }
         }
 
-        FastGridScrollbar(
-            gridState = gridState,
-            totalItems = totalItems,
-            labelProvider = { index ->
-                indexToGroupTitle.getOrElse(index) { "" }
-            },
+        if (isScrollbarExpanded) {
+            FastGridScrollbar(
+                gridState = gridState,
+                totalItems = totalItems,
+                labelProvider = { index ->
+                    indexToGroupTitle.getOrElse(index) { "" }
+                },
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 6.dp, top = 48.dp, bottom = 84.dp)
+            )
+        }
+
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
+            tonalElevation = 3.dp,
+            shadowElevation = 2.dp,
             modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 6.dp, top = 12.dp, bottom = 84.dp)
-        )
+                .align(Alignment.TopEnd)
+                .padding(end = 6.dp, top = 8.dp)
+        ) {
+            IconButton(
+                onClick = onToggleScrollbar,
+                modifier = Modifier
+                    .size(32.dp)
+                    .testTag("timeline_scrollbar_collapse_toggle")
+            ) {
+                Icon(
+                    imageVector = if (isScrollbarExpanded) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = if (isScrollbarExpanded) "Collapse scrollbar" else "Expand scrollbar",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
     }
 }
 

@@ -26,6 +26,8 @@ to be committed.
 
 ## Current version
 
+Version 1.23.0 (version code 36) adds collapsible gallery and camera controls. The Add Media button can shrink to an icon, the main timeline scrollbar can fold into an edge handle, and the camera zoom slider can collapse into a compact live zoom pill.
+
 Version 1.22.0 (version code 35) restores camera controls after every video finalize
 outcome, silently reconciles MediaStore changes made while the app was closed, prevents
 destructive database fallback, and uses the maintained AndroidX EXIF parser. The test
