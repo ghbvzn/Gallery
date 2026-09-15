@@ -912,9 +912,10 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
         if (granted) {
             viewModelScope.launch {
-                // Room immediately serves the cached library. A full MediaStore scan is
-                // only needed for a first run; the ContentObserver handles later changes.
-                if (forceRefresh || repository.getMediaCount() == 0) refreshDeviceMedia()
+                // Always reconcile changes that may have happened while the app was
+                // closed. Existing libraries scan silently so reopening is not blocked.
+                val showLoading = forceRefresh || repository.getMediaCount() == 0
+                refreshDeviceMedia(showLoading = showLoading)
             }
         }
     }
@@ -923,9 +924,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _settings.update { it.copy(permissionRequested = true) }
     }
 
-    fun refreshDeviceMedia() {
+    fun refreshDeviceMedia(showLoading: Boolean = true) {
         viewModelScope.launch {
-            _settings.update { it.copy(isLoadingMedia = true) }
+            if (showLoading) _settings.update { it.copy(isLoadingMedia = true) }
             try {
                 withContext(Dispatchers.IO) {
                     repository.cleanupDemoData()
@@ -935,7 +936,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: Exception) {
                 Log.w("GalleryViewModel", "Failed to refresh device media: ${e.message}")
             } finally {
-                _settings.update { it.copy(isLoadingMedia = false) }
+                if (showLoading) _settings.update { it.copy(isLoadingMedia = false) }
             }
         }
     }

@@ -789,9 +789,11 @@ fun CameraScreen(
                                             isRecording = true
                                             recordingStartTime = System.currentTimeMillis()
                                         },
-                                        onRecordingFinalized = { uri, durationSec ->
+                                        onRecordingStopped = {
                                             isRecording = false
                                             activeRecording = null
+                                        },
+                                        onRecordingFinalized = { uri, durationSec ->
                                             scope.launch {
                                                 val actualDetails = withContext(Dispatchers.IO) {
                                                     readVideoDetails(context, uri)
@@ -1000,6 +1002,7 @@ private fun startVideoRecording(
     videoCapture: VideoCapture<Recorder>,
     hasAudioPermission: Boolean,
     onRecordingStarted: () -> Unit,
+    onRecordingStopped: () -> Unit,
     onRecordingFinalized: (Uri, Int) -> Unit
 ): Recording {
     val displayName = "VID_${System.currentTimeMillis()}.mp4"
@@ -1027,6 +1030,7 @@ private fun startVideoRecording(
                 onRecordingStarted()
             }
             is VideoRecordEvent.Finalize -> {
+                onRecordingStopped()
                 if (!recordEvent.hasError()) {
                     val durationSec = ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceAtLeast(1)
                     val savedUri = recordEvent.outputResults.outputUri

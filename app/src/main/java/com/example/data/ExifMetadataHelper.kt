@@ -1,10 +1,10 @@
 package com.example.data
 
 import android.content.Context
-import android.media.ExifInterface
 import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.Immutable
+import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -82,8 +82,7 @@ object ExifMetadataHelper {
                 val make = exifInterface.getAttribute(ExifInterface.TAG_MAKE)?.trim()
                 val model = exifInterface.getAttribute(ExifInterface.TAG_MODEL)?.trim()
                 val aperture = exifInterface.getAttribute(ExifInterface.TAG_F_NUMBER)
-                val iso = exifInterface.getAttribute(ExifInterface.TAG_ISO_SPEED_RATINGS)
-                    ?: exifInterface.getAttribute("PhotographicSensitivity")
+                val iso = exifInterface.getAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY)
                 val exposure = exifInterface.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)
                 val focal = exifInterface.getAttribute(ExifInterface.TAG_FOCAL_LENGTH)
                 val dateTime = exifInterface.getAttribute(ExifInterface.TAG_DATETIME)
@@ -91,8 +90,7 @@ object ExifMetadataHelper {
                 val height = exifInterface.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, 0)
                 val orientation = exifInterface.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
 
-                val latLong = FloatArray(2)
-                val hasLocation = exifInterface.getLatLong(latLong)
+                val latLong = exifInterface.latLong
 
                 MediaExifData(
                     cameraMake = make?.takeIf { it.isNotBlank() },
@@ -102,8 +100,8 @@ object ExifMetadataHelper {
                     exposureTime = formatExposureTime(exposure),
                     focalLength = formatFocalLength(focal),
                     dateTime = dateTime?.takeIf { it.isNotBlank() },
-                    latitude = if (hasLocation) latLong[0].toDouble() else null,
-                    longitude = if (hasLocation) latLong[1].toDouble() else null,
+                    latitude = latLong?.getOrNull(0),
+                    longitude = latLong?.getOrNull(1),
                     imageWidth = width,
                     imageHeight = height,
                     orientation = orientation

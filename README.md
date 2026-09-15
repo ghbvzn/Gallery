@@ -26,10 +26,10 @@ to be committed.
 
 ## Current version
 
-Version 1.21.0 (version code 34) prevents duplicate in-app video entries by making
-MediaStore registration transactional and unique by URI. Existing duplicate database
-rows are cleaned automatically while the newest entry is retained. The public video
-file itself remains a single item in `DCIM/Gallery` for all gallery apps.
+Version 1.22.0 (version code 35) restores camera controls after every video finalize
+outcome, silently reconciles MediaStore changes made while the app was closed, prevents
+destructive database fallback, and uses the maintained AndroidX EXIF parser. The test
+SDK configuration is aligned with the app's standard Android 16 compile SDK.
 
 ## License
 
