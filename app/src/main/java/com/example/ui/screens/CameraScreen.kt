@@ -232,6 +232,13 @@ fun CameraScreen(
     var minZoomRatio by remember { mutableFloatStateOf(1f) }
     var maxZoomRatio by remember { mutableFloatStateOf(1f) }
 
+    LaunchedEffect(isZoomUiExpanded, linearZoom, maxZoomRatio) {
+        if (isZoomUiExpanded && maxZoomRatio > minZoomRatio) {
+            delay(3500)
+            isZoomUiExpanded = false
+        }
+    }
+
     val previewView = remember {
         PreviewView(context).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -470,6 +477,7 @@ fun CameraScreen(
                         do {
                             val event = awaitPointerEvent()
                             if (event.changes.size >= 2) {
+                                isZoomUiExpanded = true
                                 val currentZoom = boundCamera?.cameraInfo?.zoomState?.value?.zoomRatio
                                     ?: zoomRatio
                                 val requestedZoom = (currentZoom * event.calculateZoom())
@@ -655,6 +663,7 @@ fun CameraScreen(
                         Slider(
                             value = linearZoom,
                             onValueChange = { value ->
+                                isZoomUiExpanded = true
                                 boundCamera?.cameraControl?.setLinearZoom(value.coerceIn(0f, 1f))
                             },
                             valueRange = 0f..1f,

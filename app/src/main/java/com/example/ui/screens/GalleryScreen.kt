@@ -69,6 +69,9 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Photo
@@ -108,12 +111,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -148,6 +153,9 @@ import com.example.ui.components.SettingsDialog
 import com.example.ui.components.TimelineHeader
 import com.example.ui.theme.RoseFavorite
 import com.example.ui.util.DateTimeUtils
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Natural two-finger pinch-to-zoom modifier.
@@ -216,6 +224,24 @@ fun GalleryScreen(
     val context = LocalContext.current
     var isAddMediaExpanded by rememberSaveable { mutableStateOf(true) }
     var isTimelineScrollbarExpanded by rememberSaveable { mutableStateOf(true) }
+    var isGalleryAutoCollapsed by remember { mutableStateOf(false) }
+    var restoreControlsJob by remember { mutableStateOf<Job?>(null) }
+    val autoCollapseScope = rememberCoroutineScope()
+    val galleryScrollConnection = remember(autoCollapseScope) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y != 0f) {
+                    isGalleryAutoCollapsed = true
+                    restoreControlsJob?.cancel()
+                    restoreControlsJob = autoCollapseScope.launch {
+                        delay(900)
+                        isGalleryAutoCollapsed = false
+                    }
+                }
+                return Offset.Zero
+            }
+        }
+    }
 
     val mediaPermissions = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -384,7 +410,9 @@ fun GalleryScreen(
     var selectionMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(galleryScrollConnection),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             Column(
@@ -916,29 +944,35 @@ fun GalleryScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        tonalElevation = 4.dp,
-                        shadowElevation = 3.dp
+                    AnimatedVisibility(
+                        visible = !isGalleryAutoCollapsed,
+                        enter = fadeIn(),
+                        exit = fadeOut()
                     ) {
-                        IconButton(
-                            onClick = { isAddMediaExpanded = !isAddMediaExpanded },
-                            modifier = Modifier
-                                .size(40.dp)
-                                .testTag("add_media_collapse_toggle")
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tonalElevation = 4.dp,
+                            shadowElevation = 3.dp
                         ) {
-                            Icon(
-                                imageVector = if (isAddMediaExpanded) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                contentDescription = if (isAddMediaExpanded) "Collapse Add Media" else "Expand Add Media"
-                            )
+                            IconButton(
+                                onClick = { isAddMediaExpanded = !isAddMediaExpanded },
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .testTag("add_media_collapse_toggle")
+                            ) {
+                                Icon(
+                                    imageVector = if (isAddMediaExpanded) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = if (isAddMediaExpanded) "Collapse Add Media" else "Expand Add Media"
+                                )
+                            }
                         }
                     }
                     ExtendedFloatingActionButton(
                         onClick = { viewModel.showAddDialog(true) },
                         icon = { Icon(Icons.Default.Add, contentDescription = "Add Media") },
                         text = { Text("Add Media") },
-                        expanded = isAddMediaExpanded,
+                        expanded = isAddMediaExpanded && !isGalleryAutoCollapsed,
                         modifier = Modifier.testTag("add_media_fab")
                     )
                 }
@@ -1042,8 +1076,14 @@ fun GalleryScreen(
                         TimelineContent(
                             uiState = uiState,
                             isScrollbarExpanded = isTimelineScrollbarExpanded,
+                            isAutoCollapsed = isGalleryAutoCollapsed,
                             onToggleScrollbar = {
-                                isTimelineScrollbarExpanded = !isTimelineScrollbarExpanded
+                                if (isGalleryAutoCollapsed) {
+                                    isGalleryAutoCollapsed = false
+                                    isTimelineScrollbarExpanded = true
+                                } else {
+                                    isTimelineScrollbarExpanded = !isTimelineScrollbarExpanded
+                                }
                             },
                             onGrantPermission = { permissionLauncher.launch(mediaPermissions) },
                             onRefreshMedia = { viewModel.refreshDeviceMedia() },
@@ -1209,6 +1249,7 @@ fun GalleryScreen(
 private fun TimelineContent(
     uiState: GalleryUiState,
     isScrollbarExpanded: Boolean,
+    isAutoCollapsed: Boolean,
     onToggleScrollbar: () -> Unit,
     onGrantPermission: () -> Unit,
     onRefreshMedia: () -> Unit,
@@ -1320,7 +1361,8 @@ private fun TimelineContent(
             }
         }
 
-        if (isScrollbarExpanded) {
+        val showScrollbar = isScrollbarExpanded && !isAutoCollapsed
+        if (showScrollbar) {
             FastGridScrollbar(
                 gridState = gridState,
                 totalItems = totalItems,
@@ -1349,8 +1391,8 @@ private fun TimelineContent(
                     .testTag("timeline_scrollbar_collapse_toggle")
             ) {
                 Icon(
-                    imageVector = if (isScrollbarExpanded) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                    contentDescription = if (isScrollbarExpanded) "Collapse scrollbar" else "Expand scrollbar",
+                    imageVector = if (showScrollbar) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = if (showScrollbar) "Collapse scrollbar" else "Expand scrollbar",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
