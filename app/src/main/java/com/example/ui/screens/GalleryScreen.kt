@@ -115,6 +115,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -155,6 +156,9 @@ import com.example.ui.components.SettingsDialog
 import com.example.ui.components.TimelineHeader
 import com.example.ui.theme.RoseFavorite
 import com.example.ui.util.DateTimeUtils
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Natural two-finger pinch-to-zoom modifier.
@@ -222,6 +226,18 @@ fun GalleryScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var areGalleryControlsVisible by remember { mutableStateOf(true) }
+    var isTimelineScrollbarInUse by remember { mutableStateOf(false) }
+    var scrollbarIdleJob by remember { mutableStateOf<Job?>(null) }
+    val galleryScope = rememberCoroutineScope()
+    val onTimelineScrollbarInteraction = {
+        areGalleryControlsVisible = true
+        isTimelineScrollbarInUse = true
+        scrollbarIdleJob?.cancel()
+        scrollbarIdleJob = galleryScope.launch {
+            delay(900)
+            isTimelineScrollbarInUse = false
+        }
+    }
     val galleryScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -931,7 +947,7 @@ fun GalleryScreen(
         floatingActionButton = {
             if (!uiState.isSelectionMode) {
                 AnimatedVisibility(
-                    visible = areGalleryControlsVisible,
+                    visible = areGalleryControlsVisible || isTimelineScrollbarInUse,
                     enter = fadeIn() + scaleIn(initialScale = 0.82f) +
                         slideInVertically(initialOffsetY = { it / 2 }),
                     exit = fadeOut() + scaleOut(targetScale = 0.82f) +
@@ -941,6 +957,7 @@ fun GalleryScreen(
                         onClick = { viewModel.showAddDialog(true) },
                         icon = { Icon(Icons.Default.Add, contentDescription = "Add Media") },
                         text = { Text("Add Media") },
+                        expanded = !isTimelineScrollbarInUse,
                         modifier = Modifier
                             .navigationBarsPadding()
                             .testTag("add_media_fab")
@@ -1046,6 +1063,8 @@ fun GalleryScreen(
                         TimelineContent(
                             uiState = uiState,
                             areGalleryControlsVisible = areGalleryControlsVisible,
+                            isScrollbarInUse = isTimelineScrollbarInUse,
+                            onScrollbarInteraction = onTimelineScrollbarInteraction,
                             onGrantPermission = { permissionLauncher.launch(mediaPermissions) },
                             onRefreshMedia = { viewModel.refreshDeviceMedia() },
                             onMediaClick = { viewModel.openDetailViewer(it) },
@@ -1210,6 +1229,8 @@ fun GalleryScreen(
 private fun TimelineContent(
     uiState: GalleryUiState,
     areGalleryControlsVisible: Boolean,
+    isScrollbarInUse: Boolean,
+    onScrollbarInteraction: () -> Unit,
     onGrantPermission: () -> Unit,
     onRefreshMedia: () -> Unit,
     onMediaClick: (com.example.data.MediaItem) -> Unit,
@@ -1321,7 +1342,7 @@ private fun TimelineContent(
         }
 
         AnimatedVisibility(
-            visible = areGalleryControlsVisible,
+            visible = areGalleryControlsVisible || isScrollbarInUse,
             enter = fadeIn() + slideInHorizontally(initialOffsetX = { it }),
             exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it }),
             modifier = Modifier.fillMaxSize()
@@ -1333,6 +1354,7 @@ private fun TimelineContent(
                     labelProvider = { index ->
                         indexToGroupTitle.getOrElse(index) { "" }
                     },
+                    onInteraction = onScrollbarInteraction,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = 6.dp, top = 12.dp, bottom = 84.dp)

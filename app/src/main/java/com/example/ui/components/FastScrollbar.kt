@@ -112,7 +112,8 @@ fun FastGridScrollbar(
     gridState: LazyGridState,
     totalItems: Int,
     modifier: Modifier = Modifier,
-    labelProvider: ((Int) -> String)? = null
+    labelProvider: ((Int) -> String)? = null,
+    onInteraction: () -> Unit = {}
 ) {
     if (totalItems <= 4) return
 
@@ -126,12 +127,14 @@ fun FastGridScrollbar(
         },
         totalItems = totalItems,
         onScrollToIndex = { targetIndex ->
+            onInteraction()
             scrollJob?.cancel()
             scrollJob = coroutineScope.launch {
                 gridState.scrollToItem(targetIndex)
             }
         },
         onScrollToTop = {
+            onInteraction()
             scrollJob?.cancel()
             scrollJob = coroutineScope.launch {
                 if (gridState.firstVisibleItemIndex > 15) {
@@ -141,6 +144,7 @@ fun FastGridScrollbar(
             }
         },
         onScrollToBottom = {
+            onInteraction()
             scrollJob?.cancel()
             scrollJob = coroutineScope.launch {
                 val last = (totalItems - 1).coerceAtLeast(0)

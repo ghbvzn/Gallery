@@ -26,16 +26,7 @@ to be committed.
 
 ## Current version
 
-Version 1.25.0 (version code 38) removes the manual gallery collapse arrows. Add Media and the full timeline scrollbar now smoothly slide and fade away when scrolling down, remain hidden, and return immediately when scrolling up.
-
-Version 1.24.0 (version code 37) automatically tucks away gallery controls while scrolling and restores them after a short idle delay. The camera zoom slider now collapses after inactivity and reopens whenever pinch zoom is used, while all manual toggles remain available.
-
-Version 1.23.0 (version code 36) adds collapsible gallery and camera controls. The Add Media button can shrink to an icon, the main timeline scrollbar can fold into an edge handle, and the camera zoom slider can collapse into a compact live zoom pill.
-
-Version 1.22.0 (version code 35) restores camera controls after every video finalize
-outcome, silently reconciles MediaStore changes made while the app was closed, prevents
-destructive database fallback, and uses the maintained AndroidX EXIF parser. The test
-SDK configuration is aligned with the app's standard Android 16 compile SDK.
+Version 1.26.0 (version code 39) keeps only the current release information here. Add Media now smoothly contracts to its plus icon whenever the timeline scrollbar is used, stays compact throughout scrollbar activity, and expands again after a short idle delay.
 
 ## License
 
