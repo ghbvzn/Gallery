@@ -26,7 +26,7 @@ to be committed.
 
 ## Current version
 
-Version 1.28.0 (version code 41) removes stale blank thumbnails even when another gallery leaves behind a MediaStore database row after deleting or trashing the underlying file. Thumbnail load failures now trigger a safe file-level verification and immediate cleanup.
+Version 1.29.0 (version code 42) automatically and silently refreshes device media whenever Gallery returns to the foreground. New photos and videos captured or downloaded while the app was backgrounded appear without pressing Refresh Media, while the live MediaStore observer continues handling changes during an active session.
 
 ## License
 

@@ -99,6 +99,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val deviceMediaScanner = DeviceMediaScanner(application)
     private val _settings = MutableStateFlow(ViewSettings())
     private var observerRefreshJob: Job? = null
+    private var mediaRefreshJob: Job? = null
+    private var lastForegroundRefreshMillis = 0L
     private val observedMediaItemUris = mutableSetOf<String>()
     private val mediaLoadFailureChecks = mutableSetOf<String>()
     private var suppressMediaObserverUntilMillis = 0L
@@ -157,7 +159,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 val missingUris = deviceMediaScanner.findConfirmedMissingUris(changedItemUris)
                 repository.removeConfirmedMissingUris(missingUris)
             }
-            refreshDeviceMedia()
+            refreshDeviceMedia(showLoading = false)
         }
     }
 
@@ -936,7 +938,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun refreshDeviceMedia(showLoading: Boolean = true) {
-        viewModelScope.launch {
+        if (mediaRefreshJob?.isActive == true) return
+        mediaRefreshJob = viewModelScope.launch {
             if (showLoading) _settings.update { it.copy(isLoadingMedia = true) }
             try {
                 withContext(Dispatchers.IO) {
@@ -949,8 +952,23 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 Log.w("GalleryViewModel", "Failed to refresh device media: ${e.message}")
             } finally {
                 if (showLoading) _settings.update { it.copy(isLoadingMedia = false) }
+                mediaRefreshJob = null
             }
         }
+    }
+
+    fun onAppResumed() {
+        if (!_settings.value.hasMediaPermission) return
+        val pendingOperation = _settings.value.let {
+            it.pendingTrashItemIds.isNotEmpty() ||
+                it.pendingPermanentDeleteItemIds.isNotEmpty() ||
+                it.pendingRestoreItemIds.isNotEmpty()
+        }
+        if (pendingOperation) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastForegroundRefreshMillis < 1_500L) return
+        lastForegroundRefreshMillis = now
+        refreshDeviceMedia(showLoading = false)
     }
 
     fun onMediaLoadFailed(item: MediaItem) {
