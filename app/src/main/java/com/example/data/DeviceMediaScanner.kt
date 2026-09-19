@@ -44,6 +44,7 @@ class DeviceMediaScanner(private val context: Context) {
     suspend fun scanDeviceMedia(
         cachedItems: List<MediaItem> = emptyList()
     ): DeviceMediaScanResult = withContext(Dispatchers.IO) {
+        val cachedItemsByUri = cachedItems.associateBy { it.uriString }
         val hasLocationMetadataAccess = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
                 hasPermission(Manifest.permission.ACCESS_MEDIA_LOCATION)
         if (hasLocationMetadataAccess && !hadLocationMetadataAccess) {
@@ -68,7 +69,7 @@ class DeviceMediaScanner(private val context: Context) {
         val mediaList = mutableListOf<MediaItem>()
         if (canReadImages) {
             try {
-                mediaList.addAll(queryImages())
+                mediaList.addAll(queryImages(cachedItemsByUri))
                 if (legacyAccess || fullImageAccess) fullyScannedTypes.add(MediaType.PHOTO)
             } catch (e: Exception) {
                 Log.w("DeviceMediaScanner", "Could not query device images: ${e.message}")
@@ -76,7 +77,7 @@ class DeviceMediaScanner(private val context: Context) {
         }
         if (canReadVideos) {
             try {
-                mediaList.addAll(queryVideos())
+                mediaList.addAll(queryVideos(cachedItemsByUri))
                 if (legacyAccess || fullVideoAccess) fullyScannedTypes.add(MediaType.VIDEO)
             } catch (e: Exception) {
                 Log.w("DeviceMediaScanner", "Could not query device videos: ${e.message}")
@@ -128,7 +129,7 @@ class DeviceMediaScanner(private val context: Context) {
         }
     }
 
-    private suspend fun queryImages(): List<MediaItem> {
+    private suspend fun queryImages(cachedItemsByUri: Map<String, MediaItem>): List<MediaItem> {
         val items = mutableListOf<MediaItem>()
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
@@ -177,8 +178,16 @@ class DeviceMediaScanner(private val context: Context) {
                 val resolution = if (width > 0 && height > 0) "${width}x$height" else "Standard Photo"
 
                 val bucket = if (bucketColumn != -1) it.getString(bucketColumn) ?: "Device Photos" else "Device Photos"
-                val coordinates = readPhotoCoordinates(contentUri)
-                val placeName = coordinates?.let { coords -> resolvePlaceName(coords) }.orEmpty()
+                val cachedItem = cachedItemsByUri[contentUri.toString()]
+                val coordinates = if (cachedItem != null) {
+                    cachedItem.latitude?.let { latitude ->
+                        cachedItem.longitude?.let { longitude -> Coordinates(latitude, longitude) }
+                    }
+                } else {
+                    readPhotoCoordinates(contentUri)
+                }
+                val placeName = cachedItem?.locationName
+                    ?: coordinates?.let { coords -> resolvePlaceName(coords) }.orEmpty()
 
                 val cleanTitle = displayName.substringBeforeLast(".")
                     .replace('_', ' ')
@@ -206,7 +215,7 @@ class DeviceMediaScanner(private val context: Context) {
         return items
     }
 
-    private suspend fun queryVideos(): List<MediaItem> {
+    private suspend fun queryVideos(cachedItemsByUri: Map<String, MediaItem>): List<MediaItem> {
         val items = mutableListOf<MediaItem>()
         val projection = arrayOf(
             MediaStore.Video.Media._ID,
@@ -259,8 +268,16 @@ class DeviceMediaScanner(private val context: Context) {
 
                 val resolution = if (width > 0 && height > 0) "${width}x$height Video" else "Standard Video"
                 val bucket = if (bucketColumn != -1) it.getString(bucketColumn) ?: "Device Videos" else "Device Videos"
-                val coordinates = readVideoCoordinates(contentUri)
-                val placeName = coordinates?.let { coords -> resolvePlaceName(coords) }.orEmpty()
+                val cachedItem = cachedItemsByUri[contentUri.toString()]
+                val coordinates = if (cachedItem != null) {
+                    cachedItem.latitude?.let { latitude ->
+                        cachedItem.longitude?.let { longitude -> Coordinates(latitude, longitude) }
+                    }
+                } else {
+                    readVideoCoordinates(contentUri)
+                }
+                val placeName = cachedItem?.locationName
+                    ?: coordinates?.let { coords -> resolvePlaceName(coords) }.orEmpty()
 
                 val cleanTitle = displayName.substringBeforeLast(".")
                     .replace('_', ' ')

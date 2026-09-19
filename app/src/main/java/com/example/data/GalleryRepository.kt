@@ -20,6 +20,7 @@ class GalleryRepository(private val mediaDao: MediaDao) {
     suspend fun syncDeviceMedia(scanResult: DeviceMediaScanResult) {
         withContext(Dispatchers.IO) {
             val existing = mediaDao.getAllMediaList()
+            val existingByUri = existing.associateBy { it.uriString }
             val existingUriSet = existing.map { it.uriString }.toSet()
             val scannedUriSet = scanResult.items.map { it.uriString }.toSet()
             val newItems = scanResult.items.filter { it.uriString !in existingUriSet }
@@ -33,9 +34,16 @@ class GalleryRepository(private val mediaDao: MediaDao) {
                 }
                 .map { it.id }
                 .toList()
+            val metadataUpdates = scanResult.items.filter { scanned ->
+                val cached = existingByUri[scanned.uriString] ?: return@filter false
+                cached.folderName != scanned.folderName ||
+                    cached.locationName != scanned.locationName ||
+                    cached.latitude != scanned.latitude ||
+                    cached.longitude != scanned.longitude
+            }
 
             // One Room transaction means one coherent UI update for additions/removals.
-            mediaDao.applyDeviceMediaSync(newItems, staleIds, scanResult.items)
+            mediaDao.applyDeviceMediaSync(newItems, staleIds, metadataUpdates)
         }
     }
 

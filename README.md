@@ -26,7 +26,7 @@ to be committed.
 
 ## Current version
 
-Version 1.29.0 (version code 42) automatically and silently refreshes device media whenever Gallery returns to the foreground. New photos and videos captured or downloaded while the app was backgrounded appear without pressing Refresh Media, while the live MediaStore observer continues handling changes during an active session.
+Version 1.30.0 (version code 43) makes automatic media refresh incremental. Existing photos and videos reuse cached location metadata, and Room updates only records whose metadata actually changed, avoiding thousands of file reads, geocoder requests, and redundant database writes on every foreground refresh.
 
 ## License
 
