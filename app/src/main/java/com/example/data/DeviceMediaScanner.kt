@@ -13,6 +13,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.FileNotFoundException
 import java.util.Locale
 
 data class DeviceMediaScanResult(
@@ -101,14 +102,25 @@ class DeviceMediaScanner(private val context: Context) {
      * Permission failures remain cached because they do not prove that the file was deleted.
      */
     private fun isDefinitelyMissing(uriString: String): Boolean {
+        val uri = Uri.parse(uriString)
         return try {
-            context.contentResolver.query(
-                Uri.parse(uriString),
+            val rowExists = context.contentResolver.query(
+                uri,
                 arrayOf(MediaStore.MediaColumns._ID),
                 null,
                 null,
                 null
-            )?.use { cursor -> !cursor.moveToFirst() } ?: false
+            )?.use { cursor -> cursor.moveToFirst() } ?: return false
+            if (!rowExists) return true
+
+            // Some gallery apps trash the file while leaving its MediaStore row
+            // queryable for a while. Confirm that the underlying bytes still open.
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+                if (descriptor.statSize == 0L) return true
+            } ?: return true
+            false
+        } catch (_: FileNotFoundException) {
+            true
         } catch (_: SecurityException) {
             false
         } catch (_: Exception) {

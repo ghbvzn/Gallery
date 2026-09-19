@@ -100,6 +100,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val _settings = MutableStateFlow(ViewSettings())
     private var observerRefreshJob: Job? = null
     private val observedMediaItemUris = mutableSetOf<String>()
+    private val mediaLoadFailureChecks = mutableSetOf<String>()
     private var suppressMediaObserverUntilMillis = 0L
     private val mediaStoreObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) {
@@ -948,6 +949,18 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 Log.w("GalleryViewModel", "Failed to refresh device media: ${e.message}")
             } finally {
                 if (showLoading) _settings.update { it.copy(isLoadingMedia = false) }
+            }
+        }
+    }
+
+    fun onMediaLoadFailed(item: MediaItem) {
+        if (!item.isMediaStoreItem() || !mediaLoadFailureChecks.add(item.uriString)) return
+        viewModelScope.launch {
+            try {
+                val missingUris = deviceMediaScanner.findConfirmedMissingUris(setOf(item.uriString))
+                repository.removeConfirmedMissingUris(missingUris)
+            } finally {
+                mediaLoadFailureChecks.remove(item.uriString)
             }
         }
     }

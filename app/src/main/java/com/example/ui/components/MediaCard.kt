@@ -67,6 +67,7 @@ fun MediaCard(
     item: MediaItem,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onLoadError: () -> Unit = {},
     onLongClick: (() -> Unit)? = null,
     isSelected: Boolean = false,
     isSelectionMode: Boolean = false,
@@ -116,6 +117,7 @@ fun MediaCard(
         AsyncImage(
             model = imageRequest,
             contentDescription = item.title,
+            onError = { onLoadError() },
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop
         )

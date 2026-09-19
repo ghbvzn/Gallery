@@ -1030,6 +1030,7 @@ fun GalleryScreen(
                                 onMediaClick = { viewModel.openDetailViewer(it) },
                                 onMediaLongClick = { viewModel.toggleSelection(it.id) },
                                 onToggleFavorite = { viewModel.toggleFavorite(it) },
+                                onMediaLoadError = { viewModel.onMediaLoadFailed(it) },
                                 onZoomIn = { viewModel.zoomInGrid() },
                                 onZoomOut = { viewModel.zoomOutGrid() }
                             )
@@ -1070,6 +1071,7 @@ fun GalleryScreen(
                             onMediaClick = { viewModel.openDetailViewer(it) },
                             onMediaLongClick = { viewModel.toggleSelection(it.id) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
+                            onMediaLoadError = { viewModel.onMediaLoadFailed(it) },
                             onLocationFilter = { viewModel.setSelectedLocationFilter(it) },
                             onZoomIn = { viewModel.zoomInGrid() },
                             onZoomOut = { viewModel.zoomOutGrid() }
@@ -1086,6 +1088,7 @@ fun GalleryScreen(
                             onMediaClick = { viewModel.openDetailViewer(it) },
                             onMediaLongClick = { viewModel.toggleSelection(it.id) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
+                            onMediaLoadError = { viewModel.onMediaLoadFailed(it) },
                             onZoomIn = { viewModel.zoomInGrid() },
                             onZoomOut = { viewModel.zoomOutGrid() }
                         )
@@ -1236,6 +1239,7 @@ private fun TimelineContent(
     onMediaClick: (com.example.data.MediaItem) -> Unit,
     onMediaLongClick: (com.example.data.MediaItem) -> Unit = {},
     onToggleFavorite: (com.example.data.MediaItem) -> Unit,
+    onMediaLoadError: (com.example.data.MediaItem) -> Unit,
     onLocationFilter: (String) -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit
@@ -1335,7 +1339,8 @@ private fun TimelineContent(
                             }
                         },
                         onLongClick = { onMediaLongClick(item) },
-                        onToggleFavorite = { onToggleFavorite(item) }
+                        onToggleFavorite = { onToggleFavorite(item) },
+                        onLoadError = { onMediaLoadError(item) }
                     )
                 }
             }
@@ -1599,6 +1604,7 @@ private fun AlbumDetailContent(
     onMediaClick: (com.example.data.MediaItem) -> Unit,
     onMediaLongClick: (com.example.data.MediaItem) -> Unit = {},
     onToggleFavorite: (com.example.data.MediaItem) -> Unit,
+    onMediaLoadError: (com.example.data.MediaItem) -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit
 ) {
@@ -1692,7 +1698,8 @@ private fun AlbumDetailContent(
                                 }
                             },
                             onLongClick = { onMediaLongClick(item) },
-                            onToggleFavorite = { onToggleFavorite(item) }
+                            onToggleFavorite = { onToggleFavorite(item) },
+                            onLoadError = { onMediaLoadError(item) }
                         )
                     }
                 }
@@ -1725,6 +1732,7 @@ private fun GridContent(
     onMediaClick: (com.example.data.MediaItem) -> Unit,
     onMediaLongClick: (com.example.data.MediaItem) -> Unit = {},
     onToggleFavorite: (com.example.data.MediaItem) -> Unit,
+    onMediaLoadError: (com.example.data.MediaItem) -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit
 ) {
@@ -1796,7 +1804,8 @@ private fun GridContent(
                         }
                     },
                     onLongClick = { onMediaLongClick(item) },
-                    onToggleFavorite = { onToggleFavorite(item) }
+                    onToggleFavorite = { onToggleFavorite(item) },
+                    onLoadError = { onMediaLoadError(item) }
                 )
             }
         }

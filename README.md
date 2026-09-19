@@ -26,7 +26,7 @@ to be committed.
 
 ## Current version
 
-Version 1.27.0 (version code 40) removes stale blank thumbnails when media is deleted by another gallery, including on Android's limited photo-access mode. Failed or permission-blocked MediaStore checks are kept safely instead of being mistaken for deleted files.
+Version 1.28.0 (version code 41) removes stale blank thumbnails even when another gallery leaves behind a MediaStore database row after deleting or trashing the underlying file. Thumbnail load failures now trigger a safe file-level verification and immediate cleanup.
 
 ## License
 
