@@ -79,6 +79,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -90,6 +91,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -165,6 +167,21 @@ fun MediaDetailViewer(
     var currentPositionSeconds by remember(item.id) { mutableStateOf(0) }
     var totalDurationSeconds by remember(item.id) { mutableStateOf(if (item.durationSeconds > 0) item.durationSeconds else 0) }
     var showControls by remember(item.id) { mutableStateOf(true) }
+    var showZoomControls by remember(item.id) { mutableStateOf(true) }
+    var isViewerTouchActive by remember(item.id) { mutableStateOf(false) }
+    var zoomInteractionVersion by remember(item.id) { mutableIntStateOf(0) }
+
+    fun revealZoomControls() {
+        showZoomControls = true
+        zoomInteractionVersion++
+    }
+
+    LaunchedEffect(item.id, showZoomControls, isViewerTouchActive, zoomInteractionVersion) {
+        if (showZoomControls && !isViewerTouchActive) {
+            delay(2_500)
+            showZoomControls = false
+        }
+    }
     var playbackSpeed by remember(item.id) { mutableFloatStateOf(1f) }
     var repeatVideo by remember(item.id) { mutableStateOf(false) }
 
@@ -250,6 +267,24 @@ fun MediaDetailViewer(
                 .fillMaxSize()
                 .background(Color.Black)
                 .testTag("media_detail_viewer")
+                .pointerInput(item.id) {
+                    // Observe touches without consuming them: buttons, pinch and
+                    // playback gestures retain their normal behavior.
+                    try {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (event.changes.any { it.pressed && !it.previousPressed }) {
+                                    revealZoomControls()
+                                }
+                                isViewerTouchActive = event.changes.any { it.pressed }
+                                if (isViewerTouchActive) showZoomControls = true
+                            }
+                        }
+                    } finally {
+                        isViewerTouchActive = false
+                    }
+                }
         ) {
             // Main Media Display: Zoomable container with pinch, double-tap, and pan for photos and videos
             Box(
@@ -588,7 +623,7 @@ fun MediaDetailViewer(
 
             // Floating Zoom Control HUD
             AnimatedVisibility(
-                visible = showControls || scale > 1.05f,
+                visible = showZoomControls,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier
@@ -608,6 +643,7 @@ fun MediaDetailViewer(
                         IconButton(
                             onClick = {
                                 val newScale = (scale - 0.5f).coerceIn(1f, 5f)
+                                revealZoomControls()
                                 scale = newScale
                                 if (newScale <= 1.05f) {
                                     scale = 1f
@@ -634,6 +670,7 @@ fun MediaDetailViewer(
                             modifier = Modifier
                                 .padding(horizontal = 6.dp)
                                 .clickable {
+                                    revealZoomControls()
                                     if (scale > 1.05f) {
                                         scale = 1f
                                         offsetX = 0f
@@ -649,6 +686,7 @@ fun MediaDetailViewer(
                         IconButton(
                             onClick = {
                                 val newScale = (scale + 0.5f).coerceIn(1f, 5f)
+                                revealZoomControls()
                                 scale = newScale
                             },
                             enabled = scale < 5f,
@@ -665,6 +703,7 @@ fun MediaDetailViewer(
                         if (scale > 1.05f) {
                             IconButton(
                                 onClick = {
+                                    revealZoomControls()
                                     scale = 1f
                                     offsetX = 0f
                                     offsetY = 0f

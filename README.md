@@ -26,7 +26,7 @@ to be committed.
 
 ## Current version
 
-Version 1.31.0 (version code 44) shows new media before optional location lookup finishes and queues refresh requests received during a scan. Gallery and camera preferences persist across restarts. Videos support playback speed, repeat, and double-tap seeking. Photos can be cropped and rotated with a live preview, then saved as a separate JPEG in Pictures/Gallery (up to 4096 pixels; original files are preserved, location and camera metadata are not copied).
+Version 1.32.0 (version code 45) automatically fades the media viewer's zoom controls after 2.5 seconds without interaction, even when zoomed in. Touching the viewer reveals them again, and they stay visible throughout a pinch, pan, or button press. Hiding the controls keeps the current zoom and position intact. A new lavender photo-frame launcher icon replaces the old artwork, including adaptive, round, and monochrome themed icons. Icon artwork and generation details are in [artwork](artwork/README.md).
 
 ## License
 
