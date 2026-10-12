@@ -133,12 +133,14 @@ fun MediaDetailViewer(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onAddCustomTag: (itemId: Long, customTag: String) -> Unit,
-    onRemoveTag: (itemId: Long, tag: String) -> Unit
+    onRemoveTag: (itemId: Long, tag: String) -> Unit,
+    onEditedCopySaved: (Uri, String) -> Unit = { _, _ -> }
 ) {
     var showInfoSheet by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showAddCustomTagDialog by remember { mutableStateOf(false) }
     var customTagInput by remember { mutableStateOf("") }
+    var showPhotoEditor by remember(item.id) { mutableStateOf(false) }
 
     val context = LocalContext.current
 
@@ -163,6 +165,8 @@ fun MediaDetailViewer(
     var currentPositionSeconds by remember(item.id) { mutableStateOf(0) }
     var totalDurationSeconds by remember(item.id) { mutableStateOf(if (item.durationSeconds > 0) item.durationSeconds else 0) }
     var showControls by remember(item.id) { mutableStateOf(true) }
+    var playbackSpeed by remember(item.id) { mutableFloatStateOf(1f) }
+    var repeatVideo by remember(item.id) { mutableStateOf(false) }
 
     // Media Zoom & Pan interactive state
     var scale by remember(item.id) { mutableFloatStateOf(1f) }
@@ -254,8 +258,17 @@ fun MediaDetailViewer(
                     .clipToBounds()
                     .pointerInput(item.id) {
                         detectTapGestures(
-                            onDoubleTap = {
-                                if (scale > 1.05f) {
+                            onDoubleTap = { position ->
+                                if (item.type == MediaType.VIDEO && exoPlayer != null) {
+                                    val delta = if (position.x < size.width / 2f) -10_000L else 10_000L
+                                    exoPlayer.seekTo((exoPlayer.currentPosition + delta).coerceIn(
+                                        0L, exoPlayer.duration.takeIf { it > 0L } ?: Long.MAX_VALUE
+                                    ))
+                                    currentPositionSeconds = (exoPlayer.currentPosition / 1000).toInt()
+                                    if (exoPlayer.duration > 0L) {
+                                        videoProgress = (exoPlayer.currentPosition.toFloat() / exoPlayer.duration).coerceIn(0f, 1f)
+                                    }
+                                } else if (scale > 1.05f) {
                                     scale = 1f
                                     offsetX = 0f
                                     offsetY = 0f
@@ -455,6 +468,17 @@ fun MediaDetailViewer(
                                 .padding(bottom = 76.dp)
                                 .navigationBarsPadding()
                         ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                TextButton(onClick = {
+                                    val speeds = listOf(0.5f, 1f, 1.5f, 2f)
+                                    playbackSpeed = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.size]
+                                    exoPlayer.setPlaybackSpeed(playbackSpeed)
+                                }) { Text("Speed ${playbackSpeed}×", color = Color.White) }
+                                TextButton(onClick = {
+                                    repeatVideo = !repeatVideo
+                                    exoPlayer.repeatMode = if (repeatVideo) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                                }) { Text(if (repeatVideo) "Repeat on" else "Repeat off", color = Color.White) }
+                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -782,6 +806,11 @@ fun MediaDetailViewer(
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                         .navigationBarsPadding()
                 ) {
+                    if (item.type == MediaType.PHOTO && !item.isTrashed) {
+                        TextButton(onClick = { showPhotoEditor = true }) {
+                            Text("Crop / rotate", color = Color.White)
+                        }
+                    }
                     // Active tags preview
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1240,6 +1269,13 @@ fun MediaDetailViewer(
                 }
             }
         )
+    }
+
+    if (showPhotoEditor) {
+        PhotoEditorDialog(item, onDismiss = { showPhotoEditor = false }, onSaved = { uri, resolution ->
+            showPhotoEditor = false
+            onEditedCopySaved(uri, resolution)
+        })
     }
 
     if (showDeleteConfirm) {

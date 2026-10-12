@@ -203,12 +203,33 @@ fun CameraScreen(
         return
     }
 
-    var cameraMode by remember { mutableStateOf(CameraMode.PHOTO) }
+    val cameraPreferences = remember { context.getSharedPreferences("camera_preferences", 0) }
+    var cameraMode by remember { mutableStateOf(CameraMode.entries.firstOrNull {
+        it.name == cameraPreferences.getString("mode", "")
+    } ?: CameraMode.PHOTO) }
     var lensFacing by remember { mutableStateOf(CameraSelector.LENS_FACING_BACK) }
-    var flashState by remember { mutableStateOf(FlashState.OFF) }
-    var photoAspectRatio by remember { mutableStateOf(PhotoAspectRatio.STANDARD) }
-    var videoResolution by remember { mutableStateOf(VideoResolution.AUTO) }
-    var selectedVideoFpsRange by remember { mutableStateOf<Range<Int>?>(null) }
+    var flashState by remember { mutableStateOf(FlashState.entries.firstOrNull {
+        it.name == cameraPreferences.getString("flash", "")
+    } ?: FlashState.OFF) }
+    var photoAspectRatio by remember { mutableStateOf(PhotoAspectRatio.entries.firstOrNull {
+        it.name == cameraPreferences.getString("aspect", "")
+    } ?: PhotoAspectRatio.STANDARD) }
+    var videoResolution by remember { mutableStateOf(VideoResolution.entries.firstOrNull {
+        it.name == cameraPreferences.getString("resolution", "")
+    } ?: VideoResolution.AUTO) }
+    var selectedVideoFpsRange by remember { mutableStateOf<Range<Int>?>(
+        cameraPreferences.getInt("fpsLower", 0).let { lower ->
+            val upper = cameraPreferences.getInt("fpsUpper", 0)
+            if (lower > 0 && upper >= lower) Range(lower, upper) else null
+        }
+    ) }
+    LaunchedEffect(cameraMode, flashState, photoAspectRatio, videoResolution, selectedVideoFpsRange) {
+        cameraPreferences.edit().putString("mode", cameraMode.name)
+            .putString("flash", flashState.name).putString("aspect", photoAspectRatio.name)
+            .putString("resolution", videoResolution.name)
+            .putInt("fpsLower", selectedVideoFpsRange?.lower ?: 0)
+            .putInt("fpsUpper", selectedVideoFpsRange?.upper ?: 0).apply()
+    }
     var supportedVideoResolutions by remember { mutableStateOf(listOf(VideoResolution.AUTO)) }
     var supportedVideoFpsRanges by remember { mutableStateOf(emptyList<Range<Int>>()) }
     var isZoomUiExpanded by rememberSaveable { mutableStateOf(true) }

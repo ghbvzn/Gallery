@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -97,9 +98,19 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     private val repository: GalleryRepository
     private val deviceMediaScanner = DeviceMediaScanner(application)
-    private val _settings = MutableStateFlow(ViewSettings())
+    private val preferences = application.getSharedPreferences("gallery_preferences", 0)
+    private val _settings = MutableStateFlow(ViewSettings(
+        gridColumns = preferences.getInt("gridColumns", 3).coerceIn(2, 5),
+        themeMode = preferences.getString("themeMode", "system") ?: "system",
+        sortOrder = SortOrder.entries.firstOrNull { it.name == preferences.getString("sortOrder", "") }
+            ?: SortOrder.NEWEST_FIRST,
+        showVideoDurationBadge = preferences.getBoolean("videoBadges", true)
+    ))
     private var observerRefreshJob: Job? = null
     private var mediaRefreshJob: Job? = null
+    private var refreshRequested = false
+    private val locationEnrichmentQueue = linkedMapOf<String, MediaItem>()
+    private var locationEnrichmentJob: Job? = null
     private var lastForegroundRefreshMillis = 0L
     private val observedMediaItemUris = mutableSetOf<String>()
     private val mediaLoadFailureChecks = mutableSetOf<String>()
@@ -117,6 +128,16 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     init {
         val db = GalleryDatabase.getDatabase(application)
         repository = GalleryRepository(db.mediaDao())
+        viewModelScope.launch {
+            _settings.map { listOf(it.gridColumns, it.themeMode, it.sortOrder.name, it.showVideoDurationBadge) }
+                .distinctUntilChanged().collect {
+                    val settings = _settings.value
+                    preferences.edit().putInt("gridColumns", settings.gridColumns)
+                        .putString("themeMode", settings.themeMode)
+                        .putString("sortOrder", settings.sortOrder.name)
+                        .putBoolean("videoBadges", settings.showVideoDurationBadge).apply()
+                }
+        }
         viewModelScope.launch {
             // Remove demo photos and videos
             repository.cleanupDemoData()
@@ -581,6 +602,15 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _settings.update { it.copy(editingItem = item) }
     }
 
+    fun onEditedCopySaved(original: MediaItem, uri: Uri, resolution: String) {
+        addMedia(
+            title = "${original.title} (edited)", uriString = uri.toString(), type = MediaType.PHOTO,
+            location = "", dateEpochMillis = System.currentTimeMillis(), durationSeconds = 0,
+            resolution = resolution, notes = "Edited copy of ${original.title}",
+            tags = listOf("photo", "edited"), folderName = "Gallery"
+        )
+    }
+
     fun stopEditing() {
         _settings.update { it.copy(editingItem = null) }
     }
@@ -938,21 +968,53 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun refreshDeviceMedia(showLoading: Boolean = true) {
-        if (mediaRefreshJob?.isActive == true) return
+        if (mediaRefreshJob?.isActive == true) {
+            refreshRequested = true
+            return
+        }
         mediaRefreshJob = viewModelScope.launch {
             if (showLoading) _settings.update { it.copy(isLoadingMedia = true) }
             try {
-                withContext(Dispatchers.IO) {
-                    repository.cleanupDemoData()
+                do {
+                    refreshRequested = false
                     val cachedItems = repository.getMediaSnapshot()
                     val scanned = deviceMediaScanner.scanDeviceMedia(cachedItems)
                     repository.syncDeviceMedia(scanned)
-                }
+                    scanned.items.filter { deviceMediaScanner.needsLocationEnrichment(it) }.forEach {
+                        locationEnrichmentQueue[it.uriString] = it
+                    }
+                    startLocationEnrichment()
+                } while (refreshRequested)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w("GalleryViewModel", "Failed to refresh device media: ${e.message}")
             } finally {
                 if (showLoading) _settings.update { it.copy(isLoadingMedia = false) }
                 mediaRefreshJob = null
+            }
+        }
+    }
+
+    private fun startLocationEnrichment() {
+        if (locationEnrichmentJob?.isActive == true) return
+        locationEnrichmentJob = viewModelScope.launch {
+            try {
+                while (locationEnrichmentQueue.isNotEmpty()) {
+                    val item = locationEnrichmentQueue.entries.first().value
+                    locationEnrichmentQueue.remove(item.uriString)
+                    try {
+                        val enriched = deviceMediaScanner.enrichLocation(item)
+                        if (enriched.latitude != null) repository.updateEnrichedLocation(enriched)
+                        deviceMediaScanner.markLocationEnriched(item)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("GalleryViewModel", "Location metadata unavailable", e)
+                    }
+                }
+            } finally {
+                locationEnrichmentJob = null
             }
         }
     }

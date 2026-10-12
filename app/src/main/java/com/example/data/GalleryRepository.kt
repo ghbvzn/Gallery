@@ -51,6 +51,13 @@ class GalleryRepository(private val mediaDao: MediaDao) {
         mediaDao.getAllMediaList()
     }
 
+    suspend fun updateEnrichedLocation(item: MediaItem) = withContext(Dispatchers.IO) {
+        // UPDATE only: an item deleted during enrichment must never be reinserted.
+        mediaDao.updateScannedMetadata(
+            item.uriString, item.folderName, item.locationName, item.latitude, item.longitude
+        )
+    }
+
     suspend fun removeConfirmedMissingUris(uriStrings: Set<String>) = withContext(Dispatchers.IO) {
         if (uriStrings.isNotEmpty()) mediaDao.deleteActiveByUris(uriStrings.toList())
     }

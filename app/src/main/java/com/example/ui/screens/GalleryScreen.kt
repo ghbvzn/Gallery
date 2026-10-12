@@ -1114,7 +1114,10 @@ fun GalleryScreen(
             onPrevious = { viewModel.previousItem() },
             onNext = { viewModel.nextItem() },
             onAddCustomTag = { itemId, tag -> viewModel.addCustomTag(itemId, tag) },
-            onRemoveTag = { itemId, tag -> viewModel.removeTag(itemId, tag) }
+            onRemoveTag = { itemId, tag -> viewModel.removeTag(itemId, tag) },
+            onEditedCopySaved = { uri, resolution ->
+                viewModel.onEditedCopySaved(active, uri, resolution)
+            }
         )
     }
 

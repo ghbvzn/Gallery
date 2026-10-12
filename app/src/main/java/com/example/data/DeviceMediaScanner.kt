@@ -28,9 +28,16 @@ class DeviceMediaScanner(private val context: Context) {
 
     private data class Coordinates(val latitude: Double, val longitude: Double)
 
-    private val coordinateCache = mutableMapOf<String, Coordinates?>()
+    private val coordinateCache = java.util.Collections.synchronizedMap(mutableMapOf<String, Coordinates?>())
     private val placeNameCache = mutableMapOf<String, String>()
     private var hadLocationMetadataAccess = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+    private val metadataPreferences = context.getSharedPreferences("media_metadata_checked", 0)
+
+    private fun metadataKey(item: MediaItem): String = "${item.uriString}|${item.dateEpochMillis}|" +
+        (Build.VERSION.SDK_INT < 29 || hasPermission(Manifest.permission.ACCESS_MEDIA_LOCATION))
+
+    fun needsLocationEnrichment(item: MediaItem): Boolean =
+        item.latitude == null && !metadataPreferences.getBoolean(metadataKey(item), false)
 
     private fun hasPermission(permission: String): Boolean {
         return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
@@ -49,7 +56,9 @@ class DeviceMediaScanner(private val context: Context) {
                 hasPermission(Manifest.permission.ACCESS_MEDIA_LOCATION)
         if (hasLocationMetadataAccess && !hadLocationMetadataAccess) {
             // Retry items previously scanned while Android was redacting GPS EXIF data.
-            coordinateCache.entries.removeAll { it.value == null }
+            synchronized(coordinateCache) {
+                coordinateCache.entries.removeAll { it.value == null }
+            }
         }
         hadLocationMetadataAccess = hasLocationMetadataAccess
 
@@ -151,7 +160,7 @@ class DeviceMediaScanner(private val context: Context) {
             sortOrder
         )
 
-        cursor?.use {
+        checkNotNull(cursor) { "Image inventory query unavailable" }.use {
             val idColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
             val nameColumn = it.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
             val dateAddedColumn = it.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
@@ -184,7 +193,7 @@ class DeviceMediaScanner(private val context: Context) {
                         cachedItem.longitude?.let { longitude -> Coordinates(latitude, longitude) }
                     }
                 } else {
-                    readPhotoCoordinates(contentUri)
+                    null // Publish the inventory before reading optional EXIF metadata.
                 }
                 val placeName = cachedItem?.locationName
                     ?: coordinates?.let { coords -> resolvePlaceName(coords) }.orEmpty()
@@ -238,7 +247,7 @@ class DeviceMediaScanner(private val context: Context) {
             sortOrder
         )
 
-        cursor?.use {
+        checkNotNull(cursor) { "Video inventory query unavailable" }.use {
             val idColumn = it.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
             val nameColumn = it.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
             val dateAddedColumn = it.getColumnIndex(MediaStore.Video.Media.DATE_ADDED)
@@ -274,7 +283,7 @@ class DeviceMediaScanner(private val context: Context) {
                         cachedItem.longitude?.let { longitude -> Coordinates(latitude, longitude) }
                     }
                 } else {
-                    readVideoCoordinates(contentUri)
+                    null // Video retriever and geocoding run after items become visible.
                 }
                 val placeName = cachedItem?.locationName
                     ?: coordinates?.let { coords -> resolvePlaceName(coords) }.orEmpty()
@@ -330,6 +339,24 @@ class DeviceMediaScanner(private val context: Context) {
         }
         coordinateCache[cacheKey] = coordinates
         return coordinates
+    }
+
+    suspend fun enrichLocation(item: MediaItem): MediaItem = withContext(Dispatchers.IO) {
+        val uri = Uri.parse(item.uriString)
+        val coordinates = when (item.type) {
+            MediaType.PHOTO -> readPhotoCoordinates(uri)
+            MediaType.VIDEO -> readVideoCoordinates(uri)
+        }
+        val enriched = item.copy(
+            latitude = coordinates?.latitude,
+            longitude = coordinates?.longitude,
+            locationName = coordinates?.let { resolvePlaceName(it) }.orEmpty()
+        )
+        enriched
+    }
+
+    fun markLocationEnriched(item: MediaItem) {
+        metadataPreferences.edit().putBoolean(metadataKey(item), true).apply()
     }
 
     private fun readVideoCoordinates(uri: Uri): Coordinates? {

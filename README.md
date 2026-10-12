@@ -26,7 +26,7 @@ to be committed.
 
 ## Current version
 
-Version 1.30.0 (version code 43) makes automatic media refresh incremental. Existing photos and videos reuse cached location metadata, and Room updates only records whose metadata actually changed, avoiding thousands of file reads, geocoder requests, and redundant database writes on every foreground refresh.
+Version 1.31.0 (version code 44) shows new media before optional location lookup finishes and queues refresh requests received during a scan. Gallery and camera preferences persist across restarts. Videos support playback speed, repeat, and double-tap seeking. Photos can be cropped and rotated with a live preview, then saved as a separate JPEG in Pictures/Gallery (up to 4096 pixels; original files are preserved, location and camera metadata are not copied).
 
 ## License
 
