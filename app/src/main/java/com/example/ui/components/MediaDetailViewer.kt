@@ -178,7 +178,7 @@ fun MediaDetailViewer(
 
     LaunchedEffect(item.id, showZoomControls, isViewerTouchActive, zoomInteractionVersion) {
         if (showZoomControls && !isViewerTouchActive) {
-            delay(2_500)
+            delay(1_500)
             showZoomControls = false
         }
     }

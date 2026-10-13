@@ -16,8 +16,8 @@ android {
     applicationId = "com.aistudio.gallery.pxqmrt"
     minSdk = 24
     targetSdk = 36
-    versionCode = 45
-    versionName = "1.32.0"
+    versionCode = 46
+    versionName = "1.33.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

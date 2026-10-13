@@ -26,7 +26,7 @@ to be committed.
 
 ## Current version
 
-Version 1.32.0 (version code 45) automatically fades the media viewer's zoom controls after 2.5 seconds without interaction, even when zoomed in. Touching the viewer reveals them again, and they stay visible throughout a pinch, pan, or button press. Hiding the controls keeps the current zoom and position intact. A new lavender photo-frame launcher icon replaces the old artwork, including adaptive, round, and monochrome themed icons. Icon artwork and generation details are in [artwork](artwork/README.md).
+Version 1.33.0 (version code 46) fades the media viewer's zoom controls after 1.5 seconds of inactivity. System status-bar and navigation-bar icons now use a light appearance to stay readable against Gallery's dark background, including when the phone uses a light system theme. Icon artwork and generation details are in [artwork](artwork/README.md).
 
 ## License
 
